@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-# aidas
-AI-based Incident Detection and Automated Support
-=======
 
 # AIDAS (AI-based Incident Detection and Automated Support)
 > AI 기반 장애 로그 자동 탐지 및 알림 운영 시스템
