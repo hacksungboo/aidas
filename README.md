@@ -1,5 +1,5 @@
 
-# AIDAS (AI-based Incident Detection and Automated Support)
+# 🤖🩺 AIDAS (AI-based Incident Detection and Automated Support)
 > AI 기반 장애 로그 자동 탐지 및 알림 운영 시스템
 > 클라우드 컨테이너 인프라의 장애 로그를 온프레미스 로컬 AI(Ollama)로 분석하여 원인 요약과 조치 방안을 Slack으로 실시간 전달하는 지능형 관제 시스템
 
