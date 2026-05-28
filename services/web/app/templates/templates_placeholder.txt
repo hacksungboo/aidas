@@ -1,0 +1,1 @@
+사용자 화면에 보여줄 상품 리스트 및 장애 인젝터(Incident Injector) 제어판용 Jinja2 HTML 템플릿 파일들이 위치하는 폴더입니다.

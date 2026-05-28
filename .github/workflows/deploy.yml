@@ -1,0 +1,1 @@
+# [GitHub Actions CD] 빌드된 이미지를 Docker Hub에 푸시한 후 AWS Swarm 클러스터에 롤링 업데이트 배포를 요청하는 파일입니다.
