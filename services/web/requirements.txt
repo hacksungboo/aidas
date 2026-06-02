@@ -1,1 +1,7 @@
 # [의존성 목록] FastAPI, Jinja2, SQLAlchemy 등 웹 서비스 구동에 필요한 파이썬 패키지들을 명시한 파일입니다.
+fastapi==0.111.0
+uvicorn==0.30.1
+sqlalchemy==2.0.30
+psycopg2-binary==2.9.9
+pydantic==2.7.2
+jinja2==3.1.4

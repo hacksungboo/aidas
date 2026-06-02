@@ -1,1 +1,13 @@
-# [도커 빌드 규격] 웹 서비스 어플리케이션을 컨테이너 환경으로 패키징하기 위한 빌드 설정 파일입니다.
+FROM python:3.10-slim
+WORKDIR /app
+
+# 의존성 설치
+COPY services/web/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 코드 복사
+COPY services/web/ .
+
+# uvicorn 대신 python -m uvicorn 사용 (안정적임)
+ENV PYTHONPATH=/app/services/web
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
