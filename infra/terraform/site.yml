@@ -1,0 +1,9 @@
+# site.yml
+---
+- name: AIDAS EC2 기본 설정
+  hosts: all
+  become: true
+
+  tasks:
+    - name: 연결 확인
+      ping:

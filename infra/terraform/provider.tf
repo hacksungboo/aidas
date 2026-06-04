@@ -1,0 +1,40 @@
+# provider.tf
+  
+terraform {
+  required_version = ">=1.14.0"
+  required_providers {
+    aws = {
+        source = "hashicorp/aws"
+        version = "~> 6.0"
+    }
+    # tailscale provider 추가
+    tailscale = {
+        source = "tailscale/tailscale" #정해진 약속어
+        version = "~> 0.17"
+     }
+     tls = {
+        source = "hashicorp/tls"
+        version = "~> 4.0"
+     }
+  }
+  # terraform 상태관리를 위한 remote 백엔드 설정. s3와 DynamoDB
+  backend "s3" {
+    bucket       = "aidas-tfstate"
+    key          = "prod/terraform.tfstate"
+    region       = "ap-northeast-2"
+    use_lockfile = true
+    encrypt      = true
+  }
+}
+
+provider "aws" {
+  alias  = "us_east_1"
+  region = var.region
+  profile = "aidasProject2"
+}
+
+provider "tailscale" {
+  api_key = var.tailscale_api_key
+  tailnet = var.tailnet_name
+}
+
