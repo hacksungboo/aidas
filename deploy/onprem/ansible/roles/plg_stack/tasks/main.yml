@@ -1,6 +1,6 @@
 # aidas/deploy/onprem/ansible/roles/plg_stack/tasks/main.yml
 # 역할:
-# - mgmt 노드에 Loki / Grafana 및 Grafana datasource provisioning 파일을 배포
+# - rocky01 노드에 Loki / Grafana 및 Grafana datasource provisioning 파일을 배포
 # - 호출 시점: deploy_plg.yml 또는 site.yml 실행 시
 # - 수행 흐름:
 #   1) 디렉터리 생성
@@ -11,7 +11,7 @@
 #   6) Loki readiness 확인
 
 ---
-- name: Create PLG directories
+- name: Create PLG base directories (Root owned)
   file:
     path: "{{ item }}"
     state: directory
@@ -22,6 +22,17 @@
     - "{{ plg_base_dir }}"
     - "{{ plg_config_dir }}"
     - "{{ grafana_provisioning_dir }}"
+    - "{{ grafana_dashboards_provisioning_dir }}" # 추가: 대시보드 프로비저닝 설정 폴더
+    - "{{ grafana_dashboards_json_dir }}"         # 추가: 실제 대시보드 JSON 저장 폴더
+
+- name: Create Data directories with writable permission for Docker containers
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0777"  # Grafana(472) 및 Loki(10001) 컨테이너 유저가 쓸 수 있도록 777 설정
+  loop:
     - "{{ loki_root_dir }}"
     - "{{ loki_data_dir }}"
     - "{{ loki_rules_dir }}"
@@ -33,26 +44,67 @@
     src: loki-config.yaml.j2
     dest: "{{ plg_config_dir }}/loki-config.yaml"
     mode: "0644"
-  notify: restart plg stack
+  register: loki_cfg
 
 - name: Deploy Grafana datasource provisioning
   template:
     src: grafana-datasources.yml.j2
     dest: "{{ grafana_provisioning_dir }}/datasources.yml"
     mode: "0644"
-  notify: restart plg stack
+  register: grafana_cfg
+
+- name: Deploy Grafana dashboard provisioning config
+  template:
+    src: grafana-dashboards-provisioning.yml.j2
+    dest: "{{ grafana_dashboards_provisioning_dir }}/dashboards.yml"
+    mode: "0644"
+  register: grafana_db_prov
+
+- name: Deploy Node Exporter Full Dashboard JSON
+  copy:
+    src: node-exporter-dashboard.json
+    dest: "{{ grafana_dashboards_provisioning_dir }}/node-exporter-dashboard.json"
+    mode: "0644"
+  register: grafana_db_json
+
+- name: Deploy Loki Logs Dashboard JSON
+  copy:
+    src: loki-logs-dashboard.json  # (13186_rev.json 원본 파일)
+    dest: "{{ grafana_dashboards_provisioning_dir }}/loki-logs-dashboard.json"
+    mode: "0644"
+  register: grafana_loki_json
+
+# [추가] Loki 3.0 에러를 유발하는 .* 문법을 .+ 로 자동 치환합니다.
+- name: Fix Loki 3.0 empty matcher error in JSON (Standard Matcher)
+  replace:
+    path: "{{ grafana_dashboards_provisioning_dir }}/loki-logs-dashboard.json"
+    regexp: '=~"\\.\*"'
+    replace: '=~".+"'
+  when: grafana_loki_json.changed
+
+- name: Fix Loki 3.0 empty matcher error in JSON (LogQL Matcher)
+  replace:
+    path: "{{ grafana_dashboards_provisioning_dir }}/loki-logs-dashboard.json"
+    regexp: '=~`\\.\*`'
+    replace: '=~`.+`'
+  when: grafana_loki_json.changed
 
 - name: Deploy PLG Docker Compose
   template:
     src: docker-compose-plg.yml.j2
     dest: "{{ plg_base_dir }}/docker-compose-plg.yml"
     mode: "0644"
-  notify: restart plg stack
+  register: compose_cfg
 
-- name: Start PLG stack
+- name: Start or Update PLG stack
   command: docker compose -f {{ plg_base_dir }}/docker-compose-plg.yml up -d
   args:
     chdir: "{{ plg_base_dir }}"
+  # 조건문에 grafana_loki_json.changed 추가
+  when: >
+    loki_cfg.changed or grafana_cfg.changed or compose_cfg.changed or 
+    grafana_db_prov.changed or grafana_db_json.changed or 
+    grafana_loki_json.changed or not ansible_check_mode
 
 - name: Check Loki readiness
   uri:
@@ -60,6 +112,6 @@
     method: GET
     status_code: 200
   register: loki_ready
-  retries: 10
+  retries: 12
   delay: 5
   until: loki_ready.status == 200

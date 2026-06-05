@@ -6,10 +6,10 @@
 
 ---
 - name: Deploy log and metric agents on all nodes
-  hosts: all
+  hosts: rocky01, rocky02
   become: true
   roles:
     - role: promtail_agent
-      when: promtail_enabled | default(false)
+      when: promtail_enabled | default(true)
     - role: node_exporter_agent
-      when: node_exporter_enabled | default(false)
+      when: node_exporter_enabled | default(true)

@@ -13,6 +13,6 @@ promtail_image: grafana/promtail:3.0.0
 promtail_positions_dir: /var/lib/promtail
 promtail_positions_file: /var/lib/promtail/positions.yaml
 
-promtail_loki_url: "http://172.16.8.200:3100/loki/api/v1/push"
+promtail_loki_url: "http://172.16.8.201:3100/loki/api/v1/push"
 promtail_log_path: /var/log/*.log
 promtail_job_name: system-logs

@@ -9,7 +9,7 @@
 #   4) promtail 기동
 
 ---
-- name: Create Promtail directories
+- name: Create Promtail base directories
   file:
     path: "{{ item }}"
     state: directory
@@ -19,23 +19,31 @@
   loop:
     - "{{ promtail_base_dir }}"
     - "{{ promtail_config_dir }}"
-    - "{{ promtail_positions_dir }}"
+
+- name: Create Promtail positions directory with writable permission
+  file:
+    path: "{{ promtail_positions_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0777"  # 컨테이너 내부 유저가 positions.yaml을 자유롭게 쓸 수 있도록 보완
 
 - name: Deploy Promtail config
   template:
     src: promtail-config.yaml.j2
     dest: "{{ promtail_config_dir }}/promtail-config.yaml"
     mode: "0644"
-  notify: restart promtail agent
+  register: promtail_cfg
 
 - name: Deploy Promtail Docker Compose
   template:
     src: docker-compose-promtail.yml.j2
     dest: "{{ promtail_base_dir }}/docker-compose-promtail.yml"
     mode: "0644"
-  notify: restart promtail agent
+  register: compose_cfg
 
-- name: Start Promtail agent
+- name: Start or Update Promtail agent
   command: docker compose -f {{ promtail_base_dir }}/docker-compose-promtail.yml up -d
   args:
     chdir: "{{ promtail_base_dir }}"
+  when: promtail_cfg.changed or compose_cfg.changed or not ansible_check_mode

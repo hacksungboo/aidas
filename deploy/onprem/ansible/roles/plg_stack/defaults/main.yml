@@ -28,3 +28,7 @@ loki_retention_period: 168h
 
 grafana_admin_user: admin
 grafana_admin_password: admin123!
+
+# 대시보드 프로비저닝 경로
+grafana_dashboards_provisioning_dir: /opt/plg/grafana/provisioning/dashboards
+grafana_dashboards_json_dir: /opt/plg/grafana/dashboards

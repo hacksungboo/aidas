@@ -15,23 +15,23 @@
   roles:
     - docker
 
-- name: Deploy PLG stack on mgmt
-  hosts: mgmt
+- name: Deploy PLG stack on rocky01
+  hosts: rocky01
   become: true
   roles:
     - plg_stack
 
-- name: Deploy monitoring stack on mgmt
-  hosts: mgmt
+- name: Deploy monitoring stack on rocky01
+  hosts: rocky01
   become: true
   roles:
-    - monitoring_stack
+    - prometheus
 
 - name: Deploy agents on all nodes
-  hosts: all
+  hosts: rocky01, rocky02
   become: true
   roles:
     - role: promtail_agent
-      when: promtail_enabled | default(false)
+      when: promtail_enabled | default(true)
     - role: node_exporter_agent
-      when: node_exporter_enabled | default(false)
+      when: node_exporter_enabled | default(true)

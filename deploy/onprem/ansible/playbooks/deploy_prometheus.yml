@@ -1,0 +1,12 @@
+# aidas/deploy/onprem/ansible/playbooks/deploy_prometheus.yml
+# 역할:
+# - rocky01 노드에 Prometheus 설치
+# - 호출 시점: 메트릭 관제 스택만 배포 또는 수정 반영 시 사용
+# - 수행 흐름: mgmt 대상 -> prometheus role 실행
+
+---
+- name: Deploy prometheus on rocky01
+  hosts: rocky01
+  become: true
+  roles:
+    - prometheus

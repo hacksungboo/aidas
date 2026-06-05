@@ -1,0 +1,59 @@
+# aidas/deploy/onprem/ansible/roles/prometheus/tasks/main.yml
+# 역할:
+# - mgmt 노드에 Prometheus 설치
+# - 호출 시점: deploy_prometheus.yml 또는 site.yml에서 호출
+# - 수행 흐름:
+#   1) 디렉터리 생성
+#   2) prometheus.yml 템플릿 생성
+#   3) compose 파일 생성
+#   4) Prometheus 기동
+
+---
+- name: Create monitoring base directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ monitoring_base_dir }}"
+    - "{{ monitoring_config_dir }}"
+
+- name: Create Prometheus data directory with writable permission
+  file:
+    path: "{{ prometheus_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0777"  # Prometheus 내부 유저(nobody:65534)가 데이터를 적재할 수 있도록 777 설정
+
+- name: Deploy Prometheus config
+  template:
+    src: prometheus.yml.j2
+    dest: "{{ monitoring_config_dir }}/prometheus.yml"
+    mode: "0644"
+  register: prometheus_cfg
+
+- name: Deploy monitoring Docker Compose
+  template:
+    src: docker-compose-prometheus.yml.j2
+    dest: "{{ monitoring_base_dir }}/docker-compose-prometheus.yml"
+    mode: "0644"
+  register: compose_cfg
+
+- name: Start or Update Prometheus stack
+  command: docker compose -f {{ monitoring_base_dir }}/docker-compose-prometheus.yml up -d
+  args:
+    chdir: "{{ monitoring_base_dir }}"
+  when: prometheus_cfg.changed or compose_cfg.changed or not ansible_check_mode
+
+- name: Check Prometheus readiness
+  uri:
+    url: "http://127.0.0.1:{{ prometheus_http_port }}/-/ready"
+    method: GET
+    status_code: 200
+  register: prom_ready
+  retries: 10
+  delay: 3
+  until: prom_ready.status == 200

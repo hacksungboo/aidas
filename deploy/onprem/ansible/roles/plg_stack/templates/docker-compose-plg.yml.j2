@@ -1,6 +1,6 @@
 # aidas/deploy/onprem/ansible/roles/plg_stack/templates/docker-compose-plg.yml.j2
 # 역할:
-# - mgmt 노드에서 Loki와 Grafana를 구동하는 Compose 템플릿
+# - rocky01 노드에서 Loki와 Grafana를 구동하는 Compose 템플릿
 # - 호출 시점: plg_stack role 실행 중 template task에서 렌더링
 # - 수행 흐름:
 #   - Loki는 로그 저장/조회 API 제공
@@ -31,15 +31,15 @@ services:
     container_name: grafana
     restart: unless-stopped
     ports:
-      - "{{ grafana_http_port }}:3000"
+      - "{{ grafana_http_port }}:3000"  # defaults의 grafana_http_port 변수가 호스트 포트로 맵핑됨
     environment:
       GF_SECURITY_ADMIN_USER: "{{ grafana_admin_user }}"
       GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
       GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
     volumes:
       - {{ grafana_data_dir }}:/var/lib/grafana
       - {{ grafana_provisioning_dir }}/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - {{ grafana_dashboards_provisioning_dir }}:/etc/grafana/provisioning/dashboards:ro
     depends_on:
       - loki
     networks:

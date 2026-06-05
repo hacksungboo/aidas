@@ -4,6 +4,9 @@
 # - 호출 시점: 템플릿 변경 후 notify 발생 시 실행
 # - 수행 흐름: docker compose up -d 재실행
 
+# 설정 파일이 바뀐 상태에서 Check Loki readiness를 안전하게 수행하기 위해,
+# handlers에 전적으로 의존하기보다 태스크 흐름 내에서 직접 docker compose up -d를 제어하도록 바꿨습니다.
+# 이에 따라 handlers/main.yml은 제거하거나 예비용으로 두셔도 됩니다. (26.06.05)
 ---
 - name: restart plg stack
   command: docker compose -f {{ plg_base_dir }}/docker-compose-plg.yml up -d
