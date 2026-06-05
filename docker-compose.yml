@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  postgres-db:
+    image: postgres:15
+    container_name: my-postgres
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ccmall_user
+      POSTGRES_PASSWORD: user1
+      POSTGRES_DB: ccmall_db
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
