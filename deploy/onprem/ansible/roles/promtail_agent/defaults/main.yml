@@ -14,5 +14,5 @@ promtail_positions_dir: /var/lib/promtail
 promtail_positions_file: /var/lib/promtail/positions.yaml
 
 promtail_loki_url: "http://172.16.8.201:3100/loki/api/v1/push"
-promtail_log_path: /var/log/*.log
+promtail_log_path: /var/log/apps/*.log
 promtail_job_name: system-logs

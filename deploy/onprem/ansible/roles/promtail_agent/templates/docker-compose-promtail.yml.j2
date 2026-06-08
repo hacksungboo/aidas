@@ -16,5 +16,5 @@ services:
     command: -config.file=/etc/promtail/promtail-config.yaml
     volumes:
       - {{ promtail_config_dir }}/promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
-      - /var/log:/var/log:ro
+      - /var/log/apps:/var/log/apps:ro
       - {{ promtail_positions_dir }}:{{ promtail_positions_dir }}

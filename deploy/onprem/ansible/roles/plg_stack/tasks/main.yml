@@ -69,25 +69,25 @@
 
 - name: Deploy Loki Logs Dashboard JSON
   copy:
-    src: loki-logs-dashboard.json  # (13186_rev.json 원본 파일)
-    dest: "{{ grafana_dashboards_provisioning_dir }}/loki-logs-dashboard.json"
+    src: loki-dashboard.json  # (13186_rev.json 원본 파일)
+    dest: "{{ grafana_dashboards_provisioning_dir }}/loki-dashboard.json"
     mode: "0644"
   register: grafana_loki_json
 
-# [추가] Loki 3.0 에러를 유발하는 .* 문법을 .+ 로 자동 치환합니다.
-- name: Fix Loki 3.0 empty matcher error in JSON (Standard Matcher)
-  replace:
-    path: "{{ grafana_dashboards_provisioning_dir }}/loki-logs-dashboard.json"
-    regexp: '=~"\\.\*"'
-    replace: '=~".+"'
-  when: grafana_loki_json.changed
+# # [추가] Loki 3.0 에러를 유발하는 .* 문법을 .+ 로 자동 치환합니다.
+# - name: Fix Loki 3.0 empty matcher error in JSON (Standard Matcher)
+#   replace:
+#     path: "{{ grafana_dashboards_provisioning_dir }}/loki-dashboard.json"
+#     regexp: '=~"\\.\*"'
+#     replace: '=~".+"'
+#   when: grafana_loki_json.changed
 
-- name: Fix Loki 3.0 empty matcher error in JSON (LogQL Matcher)
-  replace:
-    path: "{{ grafana_dashboards_provisioning_dir }}/loki-logs-dashboard.json"
-    regexp: '=~`\\.\*`'
-    replace: '=~`.+`'
-  when: grafana_loki_json.changed
+# - name: Fix Loki 3.0 empty matcher error in JSON (LogQL Matcher)
+#   replace:
+#     path: "{{ grafana_dashboards_provisioning_dir }}/loki-dashboard.json"
+#     regexp: '=~`\\.\*`'
+#     replace: '=~`.+`'
+#   when: grafana_loki_json.changed
 
 - name: Deploy PLG Docker Compose
   template:
