@@ -1,1 +1,308 @@
-# [AWS Lambda 진입점] Loki 시스템 에러 로그를 감지하여 전체 분석 프로세스를 시작하는 트리거 핸들러 파일입니다.
+import os
+import json
+import httpx
+import asyncio
+import boto3
+import re
+import logging
+from datetime import datetime, timedelta
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from dotenv import load_dotenv 
+
+load_dotenv()
+
+
+logger = logging.getLogger(__name__)
+
+logging.basicConfig(level=logging.INFO)
+
+
+
+LOKI_URL = os.getenv("LOKI_URL", "http://localhost:3100")
+
+OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/generate")
+
+AI_MODEL_NAME = "qwen2.5-coder:7b"
+
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+
+
+
+AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
+
+LAMBDA_FUNCTION_NAME = os.getenv("LAMBDA_FUNCTION_NAME", "aidas-slack-alert")
+
+lambda_client = boto3.client('lambda', region_name=AWS_REGION)
+
+
+
+PROMPT_PATH = os.getenv("PROMPT_PATH", "/home/user1/aidas/prompts/system_prompt.txt")
+SCENARIO_PATH = "/home/user1/aidas/prompts/scenarios"
+
+
+
+last_processed_ts = 0
+
+
+
+def get_system_prompt():
+
+    try:
+
+        with open(PROMPT_PATH, "r", encoding="utf-8") as f:
+
+            return f.read()
+
+    except FileNotFoundError:
+
+        logger.warning(f"🚨 {PROMPT_PATH} 파일이 없습니다.")
+
+        return "너는 시스템 에러를 분석하는 AI 엔지니어다."
+
+
+
+def trigger_lambda_sync(log_data: dict, clean_ai_analysis: str):
+
+    payload = {
+
+        "service_name": log_data.get("service_name"),
+
+        "timestamp": log_data.get("timestamp"),
+
+        "error_message": log_data.get("message"),
+
+        "ai_analysis_result": clean_ai_analysis
+
+    }
+
+    try:
+
+        lambda_client.invoke(
+
+            FunctionName=LAMBDA_FUNCTION_NAME,
+
+            InvocationType='Event',
+
+            Payload=json.dumps(payload)
+
+        )
+
+        logger.info("✅ AWS Lambda(boto3) 트리거 완료 -> Slack/DynamoDB 진행됨")
+
+    except Exception as e:
+
+        logger.error(f"❌ AWS Lambda 호출 실패: {e}")
+
+
+
+async def send_slack_fallback_alert(log_data: dict, error_reason: str):
+
+    payload = {
+
+        "text": f"🚨 *[AIDAS 비상 알림]*\nAI 분석 실패로 원본 로그만 발송합니다.\n"
+
+                f"*에러 내용:* `{log_data.get('message')}`\n*실패 사유:* {error_reason}"
+
+    }
+
+    async with httpx.AsyncClient() as client:
+
+        await client.post(SLACK_WEBHOOK_URL, json=payload)
+
+
+
+def detect_scenario(log_message: str) -> str:
+    if any(kw in log_message for kw in ["DB/Connection", "DB/Pool", "DB/Retry", "psycopg2"]):
+        return "db_timeout"
+    elif any(kw in log_message for kw in ["OOM/Kernel", "Memory", "OOM killed"]):
+        return "oom"
+    elif any(kw in log_message for kw in ["ALB/TargetGroup", "Failover", "ap-northeast-2a"]):
+        return "az_failure"
+    elif any(kw in log_message for kw in ["Traceback", "ZeroDivisionError", "Internal Server Error"]):
+        return "http_500"
+    else:
+        return "unknown"
+
+def load_scenario_prompt(scenario: str) -> str:
+    path = f"{SCENARIO_PATH}/{scenario}.txt"
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
+
+async def analyze_with_ai(log_message: str):
+    system_prompt = get_system_prompt()
+    scenario = detect_scenario(log_message)
+    scenario_prompt = load_scenario_prompt(scenario)
+    logger.info(f"[AIDAS] 감지된 시나리오: {scenario}")
+
+    full_prompt = f"{system_prompt}\n\n{scenario_prompt}\n\n[분석할 에러 로그]\n{log_message}"
+    full_response = ""
+
+    try:
+        async with httpx.AsyncClient() as client:
+            async with client.stream("POST", OLLAMA_API_URL, json={
+                "model": AI_MODEL_NAME,
+                "prompt": full_prompt,
+                "stream": True,
+                "options": {
+                    "num_predict": 512,
+                    "temperature": 0.1,
+                    "top_p": 0.9
+                }
+            }, timeout=120.0) as response:
+                async for chunk in response.aiter_text():
+                    if chunk:
+                        try:
+                            data = json.loads(chunk)
+                            full_response += data.get("response", "")
+                        except json.JSONDecodeError:
+                            pass
+
+        clean_response = re.sub(r'<thinking>.*?</thinking>', '', full_response, flags=re.DOTALL).strip()
+        return clean_response
+    except Exception as e:
+        raise e
+
+
+
+async def poll_loki_and_analyze():
+
+    global last_processed_ts
+
+    
+
+    end_time = datetime.utcnow()
+
+    start_time = end_time - timedelta(seconds=15)
+
+    
+
+    query = '{job=~".+"} |~ "ERROR|FATAL|WARN"'
+
+    
+
+    params = {
+
+        'query': query,
+
+        'start': str(int(start_time.timestamp() * 1e9)), 
+
+        'end': str(int(end_time.timestamp() * 1e9)),
+
+        'limit': 100
+
+    }
+
+    
+
+    try:
+
+        async with httpx.AsyncClient() as client:
+
+            resp = await client.get(f"{LOKI_URL}/loki/api/v1/query_range", params=params)
+
+            resp.raise_for_status()
+
+            data = resp.json()
+
+            
+
+        results = data.get('data', {}).get('result', [])
+
+        
+
+        for res in results:
+
+            service_name = res.get('stream', {}).get('job', 'unknown')
+
+            values = sorted(res.get('values', []), key=lambda x: int(x[0]))
+
+            
+
+            new_logs = []
+
+            max_ts_in_batch = last_processed_ts
+
+            
+
+            for timestamp_str, message in values:
+
+                ts_int = int(timestamp_str)
+
+                if ts_int <= last_processed_ts:
+
+                    continue
+
+                
+
+                new_logs.append(message)
+
+                max_ts_in_batch = max(max_ts_in_batch, ts_int)
+
+                
+
+            if new_logs:
+
+                combined_message = "\n".join(new_logs)
+
+                log_data = {
+
+                    "service_name": service_name, 
+
+                    "timestamp": str(max_ts_in_batch), 
+
+                    "message": combined_message
+
+                }
+
+                logger.info(f" 신규 에러 {len(new_logs)}건 묶음 감지! AI 분석 시작...")
+
+                
+
+                try:
+
+                    clean_analysis = await analyze_with_ai(combined_message)
+
+                    await asyncio.to_thread(trigger_lambda_sync, log_data, clean_analysis)
+
+                except Exception as ai_e:
+
+                    await send_slack_fallback_alert(log_data, str(ai_e))
+
+                
+
+                last_processed_ts = max_ts_in_batch
+
+                
+
+    except Exception as e:
+
+        logger.error(f"Loki 폴링 실패: {e}")
+
+
+
+async def main():
+
+    logger.info("AIDAS Log Analyzer 시작됨 (5초 주기)")
+
+    scheduler = AsyncIOScheduler()
+
+    scheduler.add_job(poll_loki_and_analyze, 'interval', seconds=5)
+
+    scheduler.start()
+
+    await asyncio.Event().wait()
+
+
+
+if __name__ == "__main__":
+
+    try:
+
+        asyncio.run(main())
+
+    except (KeyboardInterrupt, SystemExit):
+
+        logger.info("핸들러 안전하게 종료됨")
