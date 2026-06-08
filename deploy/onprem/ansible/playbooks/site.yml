@@ -35,3 +35,11 @@
       when: promtail_enabled | default(true)
     - role: node_exporter_agent
       when: node_exporter_enabled | default(true)
+
+
+- name: Deploy AIDAS AI pipeline on rocky01
+  hosts: rocky01
+  become: true
+  roles:
+    - rocky01_handler
+    
