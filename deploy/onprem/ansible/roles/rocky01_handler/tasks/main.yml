@@ -1,0 +1,66 @@
+- name: aidas 디렉토리 구조 생성
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+    owner: user1
+    group: user1
+  loop:
+    - "{{ aidas_ai_dir }}"
+    - "{{ aidas_scenario_dir }}"
+
+
+- name: handler.py 배포
+  copy:
+    src: ../../../../lambda/analyzer/handler.py
+    dest: "{{ aidas_ai_dir }}/handler.py"
+    mode: "0644"
+    owner: user1
+    group: user1
+  notify: restart handler
+
+
+- name: requirements.txt 배포
+  copy:
+    src: ../../../../lambda/analyzer/requirements.txt
+    dest: "{{ aidas_ai_dir }}/requirements.txt"
+    mode: "0644"
+
+
+- name: pip 패키지 설치
+  pip:
+    requirements: "{{ aidas_ai_dir }}/requirements.txt"
+    extra_args: --break-system-packages
+
+
+- name: system_prompt.txt 배포
+  copy:
+    src: ../../../../prompts/system_prompt.txt
+    dest: "{{ aidas_prompt_dir }}/system_prompt.txt"
+    mode: "0644"
+  notify: restart handler
+
+
+- name: 시나리오 프롬프트 배포
+  copy:
+    src: "../../../../prompts/scenarios/{{ item }}"
+    dest: "{{ aidas_scenario_dir }}/{{ item }}"
+    mode: "0644"
+  loop: "{{ scenario_files }}"
+  notify: restart handler
+
+
+- name: .env 배포
+  copy:
+    src: /home/aidas/.env.rocky01
+    dest: "{{ aidas_base_dir }}/.env"
+    mode: "0600"
+    owner: user1
+    group: user1
+
+
+- name: handler.py 백그라운드 실행
+  shell: |
+    nohup python3 {{ aidas_ai_dir }}/handler.py > {{ aidas_log_file }} 2>&1 &
+  args:
+    executable: /bin/bash

@@ -1,0 +1,11 @@
+aidas_base_dir: /home/user1/aidas
+aidas_ai_dir: "{{ aidas_base_dir }}/lambda/analyzer"
+aidas_prompt_dir: "{{ aidas_base_dir }}/prompts"
+aidas_scenario_dir: "{{ aidas_prompt_dir }}/scenarios"
+aidas_log_file: "{{ aidas_base_dir }}/handler.log"
+
+scenario_files:
+  - db_timeout.txt
+  - oom.txt
+  - az_failure.txt
+  - http_500.txt
