@@ -58,29 +58,44 @@ variable "slack_webhook_url" {
   sensitive   = true  # 플랜 출력에서 숨김
  
 }
-# variable "github_token" {
-#   description = "GitHub Personal Access Token"
-#   type        = string
-#   sensitive   = true
-# }
+variable "github_token" {
+  description = "GitHub Personal Access Token"
+  type        = string
+  sensitive   = true
+}
 
-# variable "github_owner" {
-#   description = "GitHub 팀명 또는 계정명"
-#   type        = string
-#   default     = "AIDAS"
-# }
+variable "github_owner" {
+  description = "GitHub 조직명"
+  type        = string
+  default     = "KT-TECHUP-AIDAS"
+}
 
-# variable "aws_access_key" {
-#   description = "GitHub Actions용 AWS Access Key"
-#   type        = string
-#   sensitive   = true
-# }
+variable "aws_access_key" {
+  description = "GitHub Actions용 AWS Access Key"
+  type        = string
+  sensitive   = true
+}
 
+variable "aws_secret_key" {
+  description = "GitHub Actions용 AWS Secret Key"
+  type        = string
+  sensitive   = true
+}
 
-# variable "aws_secret_key" {
-#   description = "GitHub Actions용 AWS Secret Key"
-#   type        = string
-#   sensitive   = true
+variable "dockerhub_username" {
+  description = "Docker Hub 계정명"
+  type        = string
+}
 
-# }
+variable "dockerhub_token" {
+  description = "Docker Hub Access Token (Read & Write)"
+  type        = string
+  sensitive   = true
+}
+
+variable "db_url" {
+  description = "FastAPI DB 연결 URL"
+  type        = string
+  sensitive   = true
+}
 
