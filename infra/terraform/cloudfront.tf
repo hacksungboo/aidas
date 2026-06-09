@@ -14,7 +14,7 @@ data "aws_caller_identity" "current" {}
 
 # 퍼블릭 접근 완전 차단 (CloudFront OAC로만 접근)
 resource "aws_s3_bucket_public_access_block" "assets" {
-  bucket                  = aws_s3_bucket.assets.id
+  bucket                  = #s3버킷이름 하드코딩
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true

@@ -5,6 +5,7 @@ import asyncio
 import boto3
 import re
 import logging
+import time
 from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv 
@@ -29,13 +30,8 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
 
 AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
-
 LAMBDA_FUNCTION_NAME = os.getenv("LAMBDA_FUNCTION_NAME", "aidas-slack-alert")
-
 lambda_client = boto3.client('lambda', region_name=AWS_REGION)
-
-
-
 PROMPT_PATH = os.getenv("PROMPT_PATH", "/home/user1/aidas/prompts/system_prompt.txt")
 SCENARIO_PATH = "/home/user1/aidas/prompts/scenarios"
 
@@ -60,19 +56,13 @@ def get_system_prompt():
         return "너는 시스템 에러를 분석하는 AI 엔지니어다."
 
 
-
-def trigger_lambda_sync(log_data: dict, clean_ai_analysis: str):
-
+def trigger_lambda_sync(log_data: dict, clean_ai_analysis: str, elapsed: float):
     payload = {
-
-        "service_name": log_data.get("service_name"),
-
-        "timestamp": log_data.get("timestamp"),
-
-        "error_message": log_data.get("message"),
-
-        "ai_analysis_result": clean_ai_analysis
-
+        "service_name":       log_data.get("service_name"),
+        "timestamp":          log_data.get("timestamp"),
+        "original_log":       log_data.get("message"),  
+        "ai_analysis_result": clean_ai_analysis,
+        "elapsed":            elapsed  
     }
 
     try:
@@ -262,10 +252,10 @@ async def poll_loki_and_analyze():
                 
 
                 try:
-
+                    start = time.time()
                     clean_analysis = await analyze_with_ai(combined_message)
-
-                    await asyncio.to_thread(trigger_lambda_sync, log_data, clean_analysis)
+                    elapsed = time.time() - start
+                    trigger_lambda_sync(log_data, clean_analysis, elapsed)
 
                 except Exception as ai_e:
 
