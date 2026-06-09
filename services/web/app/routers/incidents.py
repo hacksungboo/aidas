@@ -1,44 +1,78 @@
 from fastapi import APIRouter, HTTPException
-import os
 import logging
 import time
+import sys
 
 router = APIRouter()
-logger = logging.getLogger("aidas")
+
+# 💡 [핵심 해결책] FastAPI 기본 포맷에 오염되지 않는 "순정 전용 로거"를 즉석에서 생성합니다.
+raw_logger = logging.getLogger("aidas_raw_fault")
+raw_logger.setLevel(logging.DEBUG)
+raw_logger.propagate = False  # 상위 로거로 전달되어 접두사가 붙는 것을 원천 차단!
+
+# 기존 핸들러가 있으면 중복 방지를 위해 제거
+if raw_logger.handlers:
+    raw_logger.handlers.clear()
+
+# 오직 민규 님이 기재한 텍스트만 그대로 콘솔에 쏴주는 핸들러 설정
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setFormatter(logging.Formatter('%(message)s'))  # 앞대가리 시간/레벨 포맷 다 제거!
+raw_logger.addHandler(stream_handler)
+
 
 @router.post("/incident/{incident_code}")
 def trigger_incident(incident_code: str):
-    # 📢 [핵심] 조장님 말씀대로 부학성/이재혁 님이 캐치할 표준 로그는 그대로 쾅 찍어줍니다!
-    logger.error(f"[FATAL] 장애 강제 주입 시작: {incident_code}")
-    
     try:
-        if incident_code == "az-failure":
-            # 🌐 AWS 가용 영역(AZ) 장애 시뮬레이션 (ALB 헬스체크 실패 및 트래픽 전환 재현)
-            logger.error("ERROR: Health check failed for target i-0abc123def456 in ap-northeast-2a")
-            logger.error("ERROR: ALB target deregistered: instance unavailable in ap-northeast-2a")
-            logger.warning("WARN: Availability Zone ap-northeast-2a is unreachable")
-            logger.error("ERROR: Failover triggered: rerouting traffic to ap-northeast-2c")
-            logger.error("ERROR: Service degraded: response latency exceeded threshold (5000ms)")
+        # ================================================================
+        # 1. DB Timeout 시나리오 (순정 로그 완전 일치)
+        # ================================================================
+        if incident_code == "db-timeout":
+            raw_logger.error("ERROR: [DB/Connection] psycopg2.OperationalError: could not connect to server at 'db.rockyai.local' — Connection timed out after 30s")
+            raw_logger.error("FATAL: [DB/Pool] remaining connection slots are reserved — max_connections exhausted")
+            raw_logger.warning("WARN: [DB/Retry] connection pool exhausted after 30s retry — pending_requests: 47")
+            raw_logger.error("ERROR: [API] Request failed — endpoint: /api/v1/products, status: 503, reason: DB unavailable")
+            raw_logger.warning("WARN: [Tailscale/VPN] Tunnel latency spike detected — src: aws-ec2, dst: rockyai-onprem, latency: 3200ms")
             
-            # ALB 헬스체크 지연 상황을 시뮬레이션하기 위해 5초간 대기 후 응답
+            time.sleep(3) 
+            raise HTTPException(status_code=504, detail="DB Connection Timeout 모의 장애 유발 성공!")
+        
+        # ================================================================
+        # 2. OOM (Out Of Memory) 시나리오 (순정 로그 완전 일치)
+        # ================================================================
+        elif incident_code == "oom":
+            raw_logger.warning("WARN: [Memory] System memory critical — used: 7.8GB/8GB (97.5%), free: 201MB")
+            raw_logger.error("FATAL: [OOM/Kernel] Out of memory: Kill process 3821 (python3) score 962")
+            raw_logger.error("ERROR: [OOM/Kernel] Killed process 3821 (python3) — anon-rss: 5.9GB")
+            raw_logger.error("ERROR: [Container] Container aidas-web-1 OOM killed — memory_limit: 512MB, usage_at_kill: 512.1MB")
+            
+            return {"message": "OOM 모의 장애 주입 완료!"}
+        
+        # ================================================================
+        # 3. AZ Failure (가용 영역 장애) 시나리오 (순정 로그 완전 일치)
+        # ================================================================
+        elif incident_code == "az-failure":
+            raw_logger.error("ERROR: [ALB/TargetGroup] Health check failed for target i-0abc123def456 (10.0.1.45:8000) in ap-northeast-2a — HTTPCode: 504, reason: timeout after 30s")
+            raw_logger.error("ERROR: [EC2/Status] Instance i-0abc123def456 status check failed — SystemStatus: impaired, InstanceStatus: unreachable (AZ: ap-northeast-2a)")
+            raw_logger.error("ERROR: [Network] Availability Zone ap-northeast-2a is unreachable — consecutive failures: 3/3")
+            raw_logger.warning("WARN: [ALB/TargetGroup] Deregistering target i-0abc123def456 from tg-aidas-prod — reason: failed_health_checks exceeded threshold (3)")
+            raw_logger.error("ERROR: [Failover] Traffic rerouting initiated — from: ap-northeast-2a (0 healthy targets) → to: ap-northeast-2c (2 healthy targets)")
+            raw_logger.error("ERROR: [Service/Latency] Response latency exceeded SLA threshold — current: 5800ms, threshold: 1000ms, affected_users: ~340")
+            
             time.sleep(5)
             return {"message": "AZ Failure (ap-northeast-2a) 모의 장애 주입 및 트래픽 전환 시뮬레이션 완료!"}
         
-        elif incident_code == "oom":
-            # 🛡️ 안전 모드: 진짜 메모리를 터뜨리지 않고, 시뮬레이션 로그만 남깁니다.
-            logger.error("[ERROR] Out Of Memory Detected! Killer process triggered for PID 4512")
-            return {"message": "OOM 모의 장애 주입 완료!"}
-        
+        # ================================================================
+        # 4. HTTP 500 (Internal Server Error) 시나리오 (순정 로그 완전 일치)
+        # ================================================================
         elif incident_code == "http500":
-            # 🌐 500 에러는 소프트웨어 에러이므로 로그를 남기고 의도된 500 예외를 던집니다.
-            logger.error("[ERROR] 서버 내부 강제 에러 발생! - HTTP 500 Internal Server Error")
-            raise HTTPException(status_code=500, detail="HTTP 500 모의 장애 유발 성공!")
+            raw_logger.error("ERROR: [API] Unhandled exception on endpoint /api/v1/products — ZeroDivisionError: division by zero")
+            raw_logger.error("ERROR: [Traceback] File '/app/routers/products.py', line 47, in get_product_list — result = total_price / item_count")
+            raw_logger.error("ERROR: [Traceback] ZeroDivisionError: division by zero — item_count evaluated to 0 (expected: int > 0)")
+            raw_logger.error("ERROR: [API] Internal Server Error — endpoint: /api/v1/products, status: 500, response_time: 12ms")
+            raw_logger.warning("WARN: [CI/CD] Last deployment: 2025-07-04T08:55:00Z (14min ago) — commit: a3f9e12, branch: feature/price-calc, author: leecw")
+            raw_logger.error("ERROR: [Health] Service health degraded — error_rate: 94.3% (last 60s), affected_endpoint: /api/v1/products")
             
-        elif incident_code == "db-timeout":
-            # 🔌 타임아웃 지연 체감은 중요하므로 3초 정도로 짧게 지연 후 504를 던집니다.
-            time.sleep(3) 
-            logger.error("[ERROR] 504: DB Connection Timeout 유발 완료 - Connection pool exhausted")
-            raise HTTPException(status_code=504, detail="DB Connection Timeout 모의 장애 유발 성공!")
+            raise HTTPException(status_code=500, detail="HTTP 500 모의 장애 유발 성공!")
             
         else:
             raise HTTPException(status_code=404, detail="알 수 없는 장애 코드입니다.")
@@ -46,5 +80,5 @@ def trigger_incident(incident_code: str):
     except HTTPException as he:
         raise he
     except Exception as e:
-        logger.error(f"[ERROR] 장애 처리 중 예상치 못한 예외 발생: {str(e)}")
+        raw_logger.error(f"ERROR: [System] Unexpected exception during incident processing: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
