@@ -1,15 +1,42 @@
 version: '3.8'
+
 services:
+
   postgres-db:
     image: postgres:15
-    container_name: my-postgres
+    container_name: aidas-postgres
     restart: always
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: ccmall_user
-      POSTGRES_PASSWORD: user1
-      POSTGRES_DB: ccmall_db
+      POSTGRES_USER: aidas_user
+      POSTGRES_PASSWORD: aidas_password
+      POSTGRES_DB: aidas_db
     volumes:
-      - ./postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aidas_user -d aidas_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  aidas-web:
+    build:
+      context: .
+      dockerfile: services/web/Dockerfile
+    container_name: aidas-web
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DB_URL: postgresql://aidas_user:aidas_password@postgres-db:5432/aidas_db
+    volumes:
+      - aidas_logs:/var/log/aidas
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  aidas_logs:

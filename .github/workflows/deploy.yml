@@ -3,15 +3,14 @@ name: CD
 on:
   push:
     branches: [] ##실행시에 master넣어주시면됩니다.
- 
+
 env:
   IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/aidas-web
 
 jobs:
-  # ───────────────────────────────────────────────────────────────
-  # 1. build-push — Docker Hub에 이미지 빌드 및 업로드
-  # master 브랜치 push 시에만 실행
-  # ───────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # JOB 1. build-push — Docker Hub에 이미지 빌드 및 업로드
+  # ────────────────────────────────────────────────────────────────
   build-push:
     runs-on: ubuntu-latest
 
@@ -36,16 +35,15 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
   # ────────────────────────────────────────────────────────────────
-  # 2. deploy-ec2 — EC2에 SSH 접속 후 컨테이너 재배포
-  # Docker Hub에서 새 이미지를 pull 후 기존 컨테이너 교체
-  # 아직 tailscale 부분은 테스트못해서 추가 예정입니다.
+  # JOB 2. deploy-green — Green ASG 인스턴스에 새 이미지 배포
+  # build-push 완료 후 SSH로 Green EC2에 접속해 컨테이너 교체
   # ────────────────────────────────────────────────────────────────
-  deploy-ec2:
+  deploy-green:
     runs-on: ubuntu-latest
     needs: build-push
 
     steps:
-      - name: EC2에 SSH 접속 후 컨테이너 재배포
+      - name: Green EC2에 새 이미지 배포
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -65,3 +63,136 @@ jobs:
               ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
             docker image prune -f
+
+  # ────────────────────────────────────────────────────────────────
+  # JOB 3. switch-listener — ALB 리스너 트래픽을 Green으로 전환
+  # Green 배포 완료 후 ALB 리스너 가중치 변경
+  #   Blue TG: 100% → 0%
+  #   Green TG: 0%  → 100%
+  # AWS CLI 사용 (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 필요)
+  # ────────────────────────────────────────────────────────────────
+  switch-listener:
+    runs-on: ubuntu-latest
+    needs: deploy-green
+
+    steps:
+      - name: AWS CLI 설정
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: Blue/Green TG ARN 조회
+        id: tg
+        run: |
+          BLUE_ARN=$(aws elbv2 describe-target-groups \
+            --names "aidas-blue-tg" \
+            --query "TargetGroups[0].TargetGroupArn" \
+            --output text)
+
+          GREEN_ARN=$(aws elbv2 describe-target-groups \
+            --names "aidas-green-tg" \
+            --query "TargetGroups[0].TargetGroupArn" \
+            --output text)
+
+          echo "blue_arn=$BLUE_ARN"   >> $GITHUB_OUTPUT
+          echo "green_arn=$GREEN_ARN" >> $GITHUB_OUTPUT
+
+      - name: ALB 리스너 ARN 조회
+        id: listener
+        run: |
+          ALB_ARN=$(aws elbv2 describe-load-balancers \
+            --names "aidas-alb" \
+            --query "LoadBalancers[0].LoadBalancerArn" \
+            --output text)
+
+          LISTENER_ARN=$(aws elbv2 describe-listeners \
+            --load-balancer-arn "$ALB_ARN" \
+            --query "Listeners[?Port==\`80\`].ListenerArn" \
+            --output text)
+
+          echo "listener_arn=$LISTENER_ARN" >> $GITHUB_OUTPUT
+
+      - name: Green으로 트래픽 전환 (Blue 0% → Green 100%)
+        run: |
+          aws elbv2 modify-listener \
+            --listener-arn ${{ steps.listener.outputs.listener_arn }} \
+            --default-actions Type=forward,ForwardConfig="{
+              TargetGroups=[
+                {TargetGroupArn=${{ steps.tg.outputs.blue_arn }},Weight=0},
+                {TargetGroupArn=${{ steps.tg.outputs.green_arn }},Weight=100}
+              ]
+            }"
+
+          echo "## ALB 리스너 전환 완료" >> $GITHUB_STEP_SUMMARY
+          echo "| | 전환 전 | 전환 후 |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Blue TG  | 100% | 0%   |" >> $GITHUB_STEP_SUMMARY
+          echo "| Green TG | 0%   | 100% |" >> $GITHUB_STEP_SUMMARY
+
+  # ────────────────────────────────────────────────────────────────
+  # JOB 4. rollback — 장애 발생 시 Blue로 롤백 (수동 트리거)
+  # workflow_dispatch로 수동 실행 시에만 작동
+  # Green → Blue 100%로 즉시 복구
+  # ────────────────────────────────────────────────────────────────
+  rollback:
+    runs-on: ubuntu-latest
+    needs: switch-listener
+    if: failure()
+
+    steps:
+      - name: AWS CLI 설정
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: Blue TG ARN 조회
+        id: tg
+        run: |
+          BLUE_ARN=$(aws elbv2 describe-target-groups \
+            --names "aidas-blue-tg" \
+            --query "TargetGroups[0].TargetGroupArn" \
+            --output text)
+
+          GREEN_ARN=$(aws elbv2 describe-target-groups \
+            --names "aidas-green-tg" \
+            --query "TargetGroups[0].TargetGroupArn" \
+            --output text)
+
+          echo "blue_arn=$BLUE_ARN"   >> $GITHUB_OUTPUT
+          echo "green_arn=$GREEN_ARN" >> $GITHUB_OUTPUT
+
+      - name: ALB 리스너 ARN 조회
+        id: listener
+        run: |
+          ALB_ARN=$(aws elbv2 describe-load-balancers \
+            --names "aidas-alb" \
+            --query "LoadBalancers[0].LoadBalancerArn" \
+            --output text)
+
+          LISTENER_ARN=$(aws elbv2 describe-listeners \
+            --load-balancer-arn "$ALB_ARN" \
+            --query "Listeners[?Port==\`80\`].ListenerArn" \
+            --output text)
+
+          echo "listener_arn=$LISTENER_ARN" >> $GITHUB_OUTPUT
+
+      - name: Blue로 롤백 (Green 0% → Blue 100%)
+        run: |
+          aws elbv2 modify-listener \
+            --listener-arn ${{ steps.listener.outputs.listener_arn }} \
+            --default-actions Type=forward,ForwardConfig="{
+              TargetGroups=[
+                {TargetGroupArn=${{ steps.tg.outputs.blue_arn }},Weight=100},
+                {TargetGroupArn=${{ steps.tg.outputs.green_arn }},Weight=0}
+              ]
+            }"
+
+          echo "## 롤백 완료 — Blue 복구" >> $GITHUB_STEP_SUMMARY
+          echo "| | 롤백 전 | 롤백 후 |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Blue TG  | 0%   | 100% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Green TG | 100% | 0%   |" >> $GITHUB_STEP_SUMMARY
