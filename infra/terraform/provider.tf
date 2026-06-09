@@ -46,10 +46,10 @@ provider "aws" {
 
 }
 
-# provider "tailscale" {
-#   api_key = var.tailscale_api_key
-#   tailnet = var.tailnet_name
-# }
+provider "tailscale" {
+  api_key = var.tailscale_api_key
+  tailnet = var.tailnet_name
+}
 
 # # GitHub provider 설정
 # provider "github" {

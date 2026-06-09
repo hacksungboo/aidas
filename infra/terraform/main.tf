@@ -81,8 +81,8 @@ resource "local_file" "ansible_inventory"{
     content = yamlencode({
         all = {
             hosts = {
-                # [수정] 인벤토리에 EC2의 Private IP 기록
-                "${aws_network_interface.tailscale_eni.private_ip}" = {
+                # [수정] 인벤토리에 EC2의 Tailscale IP 사용
+                "${data.tailscale_device.my_ec2_device.addresses[0]}" = {
                     ansible_user = "ec2-user"
                     ansible_ssh_private_key_file = "${path.module}/aidas-key.pem"
                 }
@@ -106,7 +106,7 @@ resource "terraform_data" "wait_for_instance"{
 
     provisioner "local-exec" {
         # user_data에서 Tailscale 세팅이 완벽히 끝날 때까지 넉넉하게 대기 (2분 30초)
-        # Tailscale 경로가 PC까지 갱신되어야 Ansible이 Private IP로 접근 가능합니다.
+        #  Tailscale 경로가 갱신되어야 Ansible이 Tailscale IP로 접근 가능합니다.
         command = <<-EOT
             until tailscale status --json | jq -e \
                 '.Peer[] | select(.HostName == "${var.host_name}")' > /dev/null 2>&1; do

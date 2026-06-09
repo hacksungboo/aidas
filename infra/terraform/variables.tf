@@ -76,9 +76,11 @@ variable "slack_webhook_url" {
 #   sensitive   = true
 # }
 
+
 # variable "aws_secret_key" {
 #   description = "GitHub Actions용 AWS Secret Key"
 #   type        = string
 #   sensitive   = true
 
 # }
+
