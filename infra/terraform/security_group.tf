@@ -124,7 +124,14 @@ resource "aws_security_group" "asg_sg" {
     from_port       = 80
     to_port         = 80
     protocol        = "tcp"
-    security_groups = [aws_security_group.alb_sg.id]  # ALB만
+    security_groups = [aws_security_group.alb_sg.id]
+  }
+      ingress {
+    description = "ICMP from onpremise"
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = ["172.16.8.0/24"]
   }
   egress {
     from_port   = 0

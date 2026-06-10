@@ -16,7 +16,7 @@ resource "aws_instance" "my_ec2" {
     subnet_id              = aws_subnet.private_subnet_1.id
     vpc_security_group_ids = [aws_security_group.ssh_sg.id, aws_security_group.ec2_sg.id]
         
-    user_data = <<-EOF
+    user_data = base64encode(<<-EOF
         #!/bin/bash
         # 로그 파일 생성 및 모든 출력 기록
         exec > >(tee -a /var/log/user_data_final.log) 2>&1
@@ -56,7 +56,7 @@ resource "aws_instance" "my_ec2" {
                      --advertise-routes=${aws_vpc.main.cidr_block} \
                      --accept-routes
     EOF
-    
+    )   
     tags = {
         Name = "aidas-ec2"
     }

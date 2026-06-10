@@ -215,3 +215,20 @@ resource "tailscale_tailnet_key" "ec2_join_key" {
     preauthorized = true # 자동연결
     expiry = 2592000 # 30일
 }
+
+resource "aws_route" "to_onpremise_public" {
+  route_table_id         = aws_route_table.public_rt.id
+  destination_cidr_block = var.onpremise_cidr 
+  network_interface_id = aws_instance.my_ec2.primary_network_interface_id
+}
+resource "aws_route" "to_onpremise_private_a" {
+  route_table_id         = aws_route_table.private_rt_a.id
+  destination_cidr_block = var.onpremise_cidr
+  network_interface_id = aws_instance.my_ec2.primary_network_interface_id
+}
+
+resource "aws_route" "to_onpremise_private_c" {
+  route_table_id         = aws_route_table.private_rt_c.id
+  destination_cidr_block = var.onpremise_cidr
+  network_interface_id = aws_instance.my_ec2.primary_network_interface_id
+}
