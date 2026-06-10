@@ -13,7 +13,8 @@
   hosts: all
   become: true
   roles:
-    - docker
+    - role: docker            
+      tags: ["docker"]
 
 - name: Deploy PLG stack on rocky01
   hosts: rocky01
@@ -43,3 +44,10 @@
   roles:
     - rocky01_handler
     
+- name: Deploy AIDAS Web Services and Database Replicas
+  hosts: rocky02, ubuntu
+  become: true                        # 🌟 [추가 1] 권한 에러 방지용 관리자 권한 활성화!
+  vars:
+    project_root: "/home/user1/aidas"  # 🌟 [추가 2] 파일 경로 유령 버그를 잡기 위한 마스터 키 변수!
+  roles:
+    - role: web_db_deployment         

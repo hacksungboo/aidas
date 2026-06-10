@@ -1,4 +1,24 @@
 ---
+# ====================================================================
+# 1. [우분투 전용] 패키지 충돌 방지 및 도커 엔진 일괄 설치
+# ====================================================================
+- name: "[Ubuntu] 충돌 유발 패키지(containerd.io) 사전 제거"
+  ansible.builtin.apt:
+    name:
+      - containerd.io
+    state: absent
+  when: ansible_os_family == "Debian"   # 💡 우분투(Debian 계열)일 때만 작동!
+
+- name: "[Ubuntu] Docker 및 관련 패키지 일괄 설치"
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - docker-compose
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"   # 💡 우분투(Debian 계열)일 때만 작동!
+
+
 - name: Remove Podman related packages
   dnf:
     name:
@@ -7,27 +27,33 @@
       - runc
       - podman-catatonit
     state: absent
+  when: ansible_os_family == "RedHat"   # 💡 록키(RedHat 계열)일 때만 작동하고 우분투는 스킵!
 
 - name: Disable container-tools module
   command: dnf module disable -y container-tools
   register: disable_container_tools
   changed_when: "'Nothing to do.' not in disable_container_tools.stdout"
   failed_when: false
+  when: ansible_os_family == "RedHat"   # 💡 록키 전용 지뢰밭 차단 자물쇠
 
 - name: Install dnf plugin tools
   dnf:
     name: dnf-plugins-core
     state: present
+  when: ansible_os_family == "RedHat"   # 💡 록키 전용 지뢰밭 차단 자물쇠
 
 - name: Add Docker CE repository
   command: dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
   args:
     creates: /etc/yum.repos.d/docker-ce.repo
+  when: ansible_os_family == "RedHat"   # 💡 록키 전용 지뢰밭 차단 자물쇠
 
 - name: Install Docker packages
   dnf:
     name: "{{ docker_packages }}"
     state: present
+  when: ansible_os_family == "RedHat"   # 💡 록키 전용 지뢰밭 차단 자물쇠
+
 
 - name: Enable and start Docker
   systemd:
