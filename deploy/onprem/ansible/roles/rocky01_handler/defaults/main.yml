@@ -5,7 +5,7 @@ aidas_scenario_dir: "{{ aidas_prompt_dir }}/scenarios"
 aidas_log_file: "{{ aidas_base_dir }}/handler.log"
 
 scenario_files:
-  - db_timeout.txt
-  - oom.txt
-  - az_failure.txt
-  - http_500.txt
+  - db_timeout.py
+  - oom.py
+  - az_failure.py
+  - http_500.py

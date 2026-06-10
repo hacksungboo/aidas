@@ -30,13 +30,13 @@
 - name: pip 패키지 설치
   pip:
     requirements: "{{ aidas_ai_dir }}/requirements.txt"
-    extra_args: --break-system-packages
+    extra_args: pip3
 
 
 - name: system_prompt.txt 배포
   copy:
-    src: ../../../../prompts/system_prompt.txt
-    dest: "{{ aidas_prompt_dir }}/system_prompt.txt"
+    src: ../../../../prompts/system_prompt.py
+    dest: "{{ aidas_prompt_dir }}/system_prompt.py"
     mode: "0644"
   notify: restart handler
 
