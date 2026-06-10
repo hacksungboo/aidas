@@ -54,3 +54,33 @@ resource "github_actions_secret" "aws_secret_key" {
   secret_name     = "AWS_SECRET_ACCESS_KEY"
   plaintext_value = var.aws_secret_key
 }
+
+resource "github_actions_secret" "alb_listener_arn" {
+  repository      = "aidas"
+  secret_name     = "ALB_LISTENER_ARN"
+  plaintext_value = aws_lb_listener.https.arn
+}
+
+resource "github_actions_secret" "blue_tg_arn" {
+  repository      = "aidas"
+  secret_name     = "BLUE_TG_ARN"
+  plaintext_value = aws_lb_target_group.blue_tg.arn
+}
+
+resource "github_actions_secret" "green_tg_arn" {
+  repository      = "aidas"
+  secret_name     = "GREEN_TG_ARN"
+  plaintext_value = aws_lb_target_group.green_tg.arn
+}
+
+resource "github_actions_secret" "blue_asg_name" {
+  repository      = "aidas"
+  secret_name     = "BLUE_ASG_NAME"
+  plaintext_value = aws_autoscaling_group.asg_blue.name
+}
+
+resource "github_actions_secret" "green_asg_name" {
+  repository      = "aidas"
+  secret_name     = "GREEN_ASG_NAME"
+  plaintext_value = aws_autoscaling_group.asg_green.name
+}

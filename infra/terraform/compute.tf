@@ -41,17 +41,20 @@ resource "aws_launch_template" "lt" {
   iam_instance_profile {
     name = aws_iam_instance_profile.asg_profile.name
   }
-  user_data = base64encode(<<-EOF
-    #!/bin/bash
-    dnf update -y
-    dnf install -y nginx stress
-    systemctl enable --now nginx
-    echo "<h1>Hello from ASG Instance <i>$(hostname)</i> </h1>" > /usr/share/nginx/html/index.html
-    # ALB 헬스체크용 엔드포인트
-    mkdir -p /usr/share/nginx/html
-    echo "ok" > /usr/share/nginx/html/health
-  EOF
-  )
+user_data = base64encode(<<-EOF
+  #!/bin/bash
+  # 인터넷 연결 대기
+  until ping -c 1 8.8.8.8 &> /dev/null; do
+    sleep 5
+  done
+  dnf update -y
+  dnf install -y nginx stress
+  systemctl enable --now nginx
+  mkdir -p /usr/share/nginx/html
+  echo "<h1>Hello from ASG Instance <i>$(hostname)</i></h1>" > /usr/share/nginx/html/index.html
+  echo "ok" > /usr/share/nginx/html/health
+EOF
+)
 
   tag_specifications {
     resource_type = "instance"
@@ -66,7 +69,10 @@ resource "aws_autoscaling_group" "asg_blue" {
   max_size            = var.max_size
   min_size            = var.min_size
   desired_capacity    = var.desired_capacity
-
+  depends_on = [
+  aws_instance.nat_ec2_a,
+  aws_instance.nat_ec2_c
+]
   launch_template {
     id      = aws_launch_template.lt.id
     version = "$Latest"
@@ -75,7 +81,7 @@ resource "aws_autoscaling_group" "asg_blue" {
   default_cooldown          = 60
   target_group_arns         = [aws_lb_target_group.blue_tg.arn]  # Blue TG
   health_check_type         = "ELB"
-  health_check_grace_period = 120
+  health_check_grace_period = 300
 
   tag {
     key                 = "Name"

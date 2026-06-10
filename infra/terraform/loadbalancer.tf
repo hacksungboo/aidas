@@ -11,7 +11,7 @@ data "aws_route53_zone" "selected" {
 
 # 만들어진 ACM 인증서 가져오기
 data "aws_acm_certificate" "issued_cert" {
-  domain   = "*.${var.domain_name}"
+  domain   = "${var.domain_name}"
   statuses = ["ISSUED"]
   most_recent = true
 }

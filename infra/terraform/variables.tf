@@ -7,10 +7,10 @@ variable "region" { default = "ap-northeast-2" }
 variable "instance_type" { default = "t3.micro" }
 
 # Auto Scaling 그룹에서 최소 및 최대 인스턴스 수
-variable "max_size" { default = 2 }
-variable "min_size" { default = 1 }
+variable "max_size" { default = 4}
+variable "min_size" { default = 2 }
 # Auto Scaling 그룹에서 원하는 ec2 인스턴스 수
-variable "desired_capacity" { default = 1 }
+variable "desired_capacity" { default = 2 }
 
 variable "vpc_cidr" { default = "10.0.0.0/16" }
 variable "onpremise_cidr" { default = "172.16.8.0/24" }
@@ -49,7 +49,7 @@ variable "tailscale_api_key" {
 }
 
 variable "domain_name" {
-  default = "dafarm.shop"
+  default = "everton.cloud"
 }
 
 variable "slack_webhook_url" {
