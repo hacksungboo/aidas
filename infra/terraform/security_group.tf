@@ -118,7 +118,7 @@ resource "aws_security_group" "asg_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["100.64.0.0/10"]          # Tailscale만
+    cidr_blocks = ["10.0.0.0/16"]          # Tailscale만
   }
   ingress {
     from_port       = 80
@@ -131,7 +131,7 @@ resource "aws_security_group" "asg_sg" {
     from_port   = -1
     to_port     = -1
     protocol    = "icmp"
-    cidr_blocks = ["172.16.8.0/24"]
+    cidr_blocks = ["0.0.0.0/0"]
   }
   egress {
     from_port   = 0

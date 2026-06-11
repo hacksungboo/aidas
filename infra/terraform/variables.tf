@@ -49,7 +49,7 @@ variable "tailscale_api_key" {
 }
 
 variable "domain_name" {
-  default = ""
+  default = "everton.cloud"
 }
 
 variable "slack_webhook_url" {
