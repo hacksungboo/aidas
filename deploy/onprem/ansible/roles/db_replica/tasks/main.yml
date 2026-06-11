@@ -18,6 +18,7 @@
   ansible.builtin.copy:
     src: "{{ project_root }}/.env.rocky02"
     dest: "/home/user1/.env"
+    mode: "0600"
 
 - name: "[Replica] 💡 조장님 지정 SQL 자동 시딩 파일(init.sql) 배달"
   ansible.builtin.copy:

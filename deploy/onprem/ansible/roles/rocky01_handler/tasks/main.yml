@@ -52,7 +52,7 @@
 
 - name: .env 배포
   copy:
-    src: /home/aidas/.env.rocky01
+    src: /home/user1/aidas/.env.rocky01
     dest: "{{ aidas_base_dir }}/.env"
     mode: "0600"
     owner: user1

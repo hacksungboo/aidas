@@ -41,8 +41,14 @@ jobs:
   deploy-green:
     runs-on: ubuntu-latest
     needs: build-push
-
+    
     steps:
+      - name: Tailscale 연결
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+          
       - name: Green EC2에 새 이미지 배포
         uses: appleboy/ssh-action@v1
         with:
@@ -138,7 +144,7 @@ jobs:
   # ────────────────────────────────────────────────────────────────
   rollback:
     runs-on: ubuntu-latest
-    needs: switch-listener
+    needs: [deploy-green, switch-listener]
     if: failure()
 
     steps:

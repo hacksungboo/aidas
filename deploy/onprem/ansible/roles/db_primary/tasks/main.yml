@@ -8,22 +8,39 @@
   ansible.builtin.set_fact:
     extracted_db_pass: "{{ lookup('ansible.builtin.ini', 'POSTGRES_PASSWORD type=properties file=' ~ project_root ~ '/.env.rocky02') }}"
 
-- name: "[Primary] 💡 본진 전용 환경변수 파일(.env.rocky02) 안전 배달"
+- name: "[Primary] init.sql 디렉토리 생성"
+  ansible.builtin.file:
+    path: /home/user1/aidas
+    state: directory
+    mode: "0755"
+
+- name: "[Primary] init.sql rocky02에 복사"
+  ansible.builtin.copy:
+    src: "{{ project_root }}/init.sql"
+    dest: /home/user1/aidas/init.sql
+    mode: "0644"
+
+- name: "[Primary] .env.rocky02 rocky02에 복사"
   ansible.builtin.copy:
     src: "{{ project_root }}/.env.rocky02"
-    dest: "/home/user1/.env"
+    dest: /home/user1/.env
+    mode: "0600"
 
 - name: "[Primary] ★ PostgreSQL 마스터 DB 컨테이너 가동 ★"
   ansible.builtin.shell: |
     docker run -d --name aidas-db-master \
       -p 5432:5432 \
       --env-file /home/user1/.env \
+      -v /home/user1/aidas/init.sql:/docker-entrypoint-initdb.d/init.sql \
+      -v /data/postgres:/var/lib/postgresql/data \
       --restart always \
       postgres:15 -c wal_level=replica -c max_wal_senders=10 -c max_replication_slots=10
 
 - name: "[Primary] ⏳ DB가 안정적으로 완전히 가동될 때까지 대기"
-  ansible.builtin.shell: "sleep 10"  # 🌟 [교정] 오작동 없는 리눅스 표준 sleep으로 변경 완공!
-
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 5432
+    timeout: 60
 - name: "[Primary] ⏳ 스트리밍 복제용 전용 계정(replicator) 생성"
   ansible.builtin.shell: |
     docker exec -i aidas-db-master psql -U {{ db_user }} -d {{ db_name }} -c "CREATE ROLE {{ replica_user }} WITH REPLICATION PASSWORD '{{ extracted_db_pass }}' LOGIN;"
