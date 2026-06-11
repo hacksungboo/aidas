@@ -98,4 +98,3 @@ variable "db_url" {
   type        = string
   sensitive   = true
 }
-

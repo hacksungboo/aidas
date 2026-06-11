@@ -2,7 +2,7 @@ name: CD
 
 on:
   push:
-    branches: [] ##실행시에 master넣어주시면됩니다.
+    branches: []  # 실행시 master 넣어주세요
 
 env:
   IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/aidas-web
@@ -13,7 +13,6 @@ jobs:
   # ────────────────────────────────────────────────────────────────
   build-push:
     runs-on: ubuntu-latest
-
     steps:
       - name: 코드 체크아웃
         uses: actions/checkout@v4
@@ -35,51 +34,142 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
   # ────────────────────────────────────────────────────────────────
-  # JOB 2. deploy-green — Green ASG 인스턴스에 새 이미지 배포
-  # build-push 완료 후 SSH로 Green EC2에 접속해 컨테이너 교체
+  # JOB 2. detect — 현재 운영중인 쪽 확인
   # ────────────────────────────────────────────────────────────────
-  deploy-green:
+  detect:
     runs-on: ubuntu-latest
     needs: build-push
-    
+    outputs:
+      deploy_target: ${{ steps.check.outputs.deploy_target }}
+      idle_asg:      ${{ steps.check.outputs.idle_asg }}
+      idle_tg_arn:   ${{ steps.check.outputs.idle_tg_arn }}
+      active_asg:    ${{ steps.check.outputs.active_asg }}
+
     steps:
+      - name: AWS CLI 설정
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: 현재 운영중인 TG 확인
+        id: check
+        run: |
+          ALB_ARN=$(aws elbv2 describe-load-balancers \
+            --names "aidas-alb" \
+            --query "LoadBalancers[0].LoadBalancerArn" \
+            --output text)
+
+          LISTENER_ARN=$(aws elbv2 describe-listeners \
+            --load-balancer-arn "$ALB_ARN" \
+            --query "Listeners[?Port==\`80\`].ListenerArn" \
+            --output text)
+
+          BLUE_WEIGHT=$(aws elbv2 describe-listeners \
+            --listener-arns "$LISTENER_ARN" \
+            --query "Listeners[0].DefaultActions[0].ForwardConfig.TargetGroups[?TargetGroupArn==\`${{ secrets.BLUE_TG_ARN }}\`].Weight" \
+            --output text)
+
+          if [ "$BLUE_WEIGHT" = "100" ]; then
+            echo "deploy_target=green"                >> $GITHUB_OUTPUT
+            echo "idle_asg=aidas-asg-green"           >> $GITHUB_OUTPUT
+            echo "idle_tg_arn=${{ secrets.GREEN_TG_ARN }}" >> $GITHUB_OUTPUT
+            echo "active_asg=aidas-asg-blue"          >> $GITHUB_OUTPUT
+          else
+            echo "deploy_target=blue"                 >> $GITHUB_OUTPUT
+            echo "idle_asg=aidas-asg-blue"            >> $GITHUB_OUTPUT
+            echo "idle_tg_arn=${{ secrets.BLUE_TG_ARN }}"  >> $GITHUB_OUTPUT
+            echo "active_asg=aidas-asg-green"         >> $GITHUB_OUTPUT
+          fi
+
+  # ────────────────────────────────────────────────────────────────
+  # JOB 3. deploy — 유휴 ASG에 새 이미지 배포
+  # ────────────────────────────────────────────────────────────────
+  deploy:
+    runs-on: ubuntu-latest
+    needs: detect
+
+    steps:
+      - name: AWS CLI 설정
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
       - name: Tailscale 연결
         uses: tailscale/github-action@v2
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
 
-          
-      - name: Green EC2에 새 이미지 배포
+      - name: 유휴 ASG EC2 2개 생성
+        run: |
+          aws autoscaling set-desired-capacity \
+            --auto-scaling-group-name ${{ needs.detect.outputs.idle_asg }} \
+            --desired-capacity 2
+
+      - name: EC2 부팅 대기 (90초)
+        run: sleep 90
+
+      - name: 유휴 ASG EC2 IP 조회
+        run: |
+          IPS=$(aws ec2 describe-instances \
+            --filters \
+              "Name=tag:aws:autoscaling:groupName,Values=${{ needs.detect.outputs.idle_asg }}" \
+              "Name=instance-state-name,Values=running" \
+            --query "Reservations[].Instances[].PrivateIpAddress" \
+            --output text)
+          echo "DEPLOY_IPS=$IPS" >> $GITHUB_ENV
+
+      - name: aidas-ec2 경유 새 이미지 배포
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
+          username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: IMAGE_NAME,GITHUB_SHA,DEPLOY_IPS,DB_URL
           script: |
-            docker pull ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            for IP in $DEPLOY_IPS; do
+              ssh -i ~/aidas-key.pem -o StrictHostKeyChecking=no ec2-user@$IP "
+                docker pull $IMAGE_NAME:$GITHUB_SHA &&
+                docker stop aidas-web || true &&
+                docker rm aidas-web || true &&
+                docker run -d \
+                  --name aidas-web \
+                  --restart unless-stopped \
+                  -p 80:8000 \
+                  -e DB_URL=$DB_URL \
+                  $IMAGE_NAME:$GITHUB_SHA
+              "
+            done
+        env:
+          DB_URL: ${{ secrets.DB_URL }}
 
-            docker stop aidas-web || true
-            docker rm   aidas-web || true
-
-            docker run -d \
-              --name aidas-web \
-              --restart unless-stopped \
-              -p 8000:8000 \
-              -e DB_URL=${{ secrets.DB_URL }} \
-              ${{ env.IMAGE_NAME }}:${{ github.sha }}
-
-            docker image prune -f
+      - name: 헬스체크 대기
+        run: |
+          echo "ALB 헬스체크 대기중..."
+          for i in $(seq 1 20); do
+            HEALTHY=$(aws elbv2 describe-target-health \
+              --target-group-arn ${{ needs.detect.outputs.idle_tg_arn }} \
+              --query "TargetHealthDescriptions[?TargetHealth.State=='healthy'] | length(@)" \
+              --output text)
+            if [ "$HEALTHY" -ge "2" ]; then
+              echo "헬스체크 통과! ($HEALTHY개)"
+              exit 0
+            fi
+            echo "대기중... ($i/20)"
+            sleep 15
+          done
+          echo "헬스체크 실패!"
+          exit 1
 
   # ────────────────────────────────────────────────────────────────
-  # JOB 3. switch-listener — ALB 리스너 트래픽을 Green으로 전환
-  # Green 배포 완료 후 ALB 리스너 가중치 변경
-  #   Blue TG: 100% → 0%
-  #   Green TG: 0%  → 100%
-  # AWS CLI 사용 (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 필요)
+  # JOB 4. switch-listener — ALB 트래픽 전환
   # ────────────────────────────────────────────────────────────────
   switch-listener:
     runs-on: ubuntu-latest
-    needs: deploy-green
+    needs: [detect, deploy]
 
     steps:
       - name: AWS CLI 설정
@@ -88,22 +178,6 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-northeast-2
-
-      - name: Blue/Green TG ARN 조회
-        id: tg
-        run: |
-          BLUE_ARN=$(aws elbv2 describe-target-groups \
-            --names "aidas-blue-tg" \
-            --query "TargetGroups[0].TargetGroupArn" \
-            --output text)
-
-          GREEN_ARN=$(aws elbv2 describe-target-groups \
-            --names "aidas-green-tg" \
-            --query "TargetGroups[0].TargetGroupArn" \
-            --output text)
-
-          echo "blue_arn=$BLUE_ARN"   >> $GITHUB_OUTPUT
-          echo "green_arn=$GREEN_ARN" >> $GITHUB_OUTPUT
 
       - name: ALB 리스너 ARN 조회
         id: listener
@@ -120,33 +194,50 @@ jobs:
 
           echo "listener_arn=$LISTENER_ARN" >> $GITHUB_OUTPUT
 
-      - name: Green으로 트래픽 전환 (Blue 0% → Green 100%)
+      - name: 트래픽 전환
         run: |
+          if [ "${{ needs.detect.outputs.deploy_target }}" = "green" ]; then
+            BLUE_WEIGHT=0
+            GREEN_WEIGHT=100
+          else
+            BLUE_WEIGHT=100
+            GREEN_WEIGHT=0
+          fi
+
           aws elbv2 modify-listener \
             --listener-arn ${{ steps.listener.outputs.listener_arn }} \
             --default-actions Type=forward,ForwardConfig="{
               TargetGroups=[
-                {TargetGroupArn=${{ steps.tg.outputs.blue_arn }},Weight=0},
-                {TargetGroupArn=${{ steps.tg.outputs.green_arn }},Weight=100}
+                {TargetGroupArn=${{ secrets.BLUE_TG_ARN }},Weight=$BLUE_WEIGHT},
+                {TargetGroupArn=${{ secrets.GREEN_TG_ARN }},Weight=$GREEN_WEIGHT}
               ]
             }"
 
-          echo "## ALB 리스너 전환 완료" >> $GITHUB_STEP_SUMMARY
+      - name: 이전 ASG 0으로
+        run: |
+          aws autoscaling set-desired-capacity \
+            --auto-scaling-group-name ${{ needs.detect.outputs.active_asg }} \
+            --desired-capacity 0
+
+          echo "## 배포 완료" >> $GITHUB_STEP_SUMMARY
           echo "| | 전환 전 | 전환 후 |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| Blue TG  | 100% | 0%   |" >> $GITHUB_STEP_SUMMARY
-          echo "| Green TG | 0%   | 100% |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.detect.outputs.deploy_target }}" = "green" ]; then
+            echo "| Blue TG  | 100% | 0%   |" >> $GITHUB_STEP_SUMMARY
+            echo "| Green TG | 0%   | 100% |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Blue TG  | 0%   | 100% |" >> $GITHUB_STEP_SUMMARY
+            echo "| Green TG | 100% | 0%   |" >> $GITHUB_STEP_SUMMARY
+          fi
 
   # ────────────────────────────────────────────────────────────────
-  # JOB 4. rollback — 장애 발생 시 Blue로 롤백 (수동 트리거)
-  # workflow_dispatch로 수동 실행 시에만 작동
-  # Green → Blue 100%로 즉시 복구
+  # JOB 5. rollback — 실패시 롤백
   # ────────────────────────────────────────────────────────────────
   rollback:
     runs-on: ubuntu-latest
-    needs: [deploy-green, switch-listener]
-    if: failure()
-
+    needs: [detect, deploy, switch-listener]
+    # ✅ 수정됨: 파이프라인이 실패했으면서 && detect(상태 파악)는 성공했을 때만 롤백 실행!
+    if: failure() && needs.detect.result == 'success'
     steps:
       - name: AWS CLI 설정
         uses: aws-actions/configure-aws-credentials@v4
@@ -154,22 +245,6 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-northeast-2
-
-      - name: Blue TG ARN 조회
-        id: tg
-        run: |
-          BLUE_ARN=$(aws elbv2 describe-target-groups \
-            --names "aidas-blue-tg" \
-            --query "TargetGroups[0].TargetGroupArn" \
-            --output text)
-
-          GREEN_ARN=$(aws elbv2 describe-target-groups \
-            --names "aidas-green-tg" \
-            --query "TargetGroups[0].TargetGroupArn" \
-            --output text)
-
-          echo "blue_arn=$BLUE_ARN"   >> $GITHUB_OUTPUT
-          echo "green_arn=$GREEN_ARN" >> $GITHUB_OUTPUT
 
       - name: ALB 리스너 ARN 조회
         id: listener
@@ -186,19 +261,29 @@ jobs:
 
           echo "listener_arn=$LISTENER_ARN" >> $GITHUB_OUTPUT
 
-      - name: Blue로 롤백 (Green 0% → Blue 100%)
+      - name: 기존 운영으로 롤백
         run: |
+          if [ "${{ needs.detect.outputs.deploy_target }}" = "green" ]; then
+            BLUE_WEIGHT=100
+            GREEN_WEIGHT=0
+          else
+            BLUE_WEIGHT=0
+            GREEN_WEIGHT=100
+          fi
+
           aws elbv2 modify-listener \
             --listener-arn ${{ steps.listener.outputs.listener_arn }} \
             --default-actions Type=forward,ForwardConfig="{
               TargetGroups=[
-                {TargetGroupArn=${{ steps.tg.outputs.blue_arn }},Weight=100},
-                {TargetGroupArn=${{ steps.tg.outputs.green_arn }},Weight=0}
+                {TargetGroupArn=${{ secrets.BLUE_TG_ARN }},Weight=$BLUE_WEIGHT},
+                {TargetGroupArn=${{ secrets.GREEN_TG_ARN }},Weight=$GREEN_WEIGHT}
               ]
             }"
 
-          echo "## 롤백 완료 — Blue 복구" >> $GITHUB_STEP_SUMMARY
-          echo "| | 롤백 전 | 롤백 후 |" >> $GITHUB_STEP_SUMMARY
-          echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| Blue TG  | 0%   | 100% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Green TG | 100% | 0%   |" >> $GITHUB_STEP_SUMMARY
+      - name: 유휴 ASG 다시 0으로
+        run: |
+          aws autoscaling set-desired-capacity \
+            --auto-scaling-group-name ${{ needs.detect.outputs.idle_asg }} \
+            --desired-capacity 0
+
+          echo "## 롤백 완료" >> $GITHUB_STEP_SUMMARY

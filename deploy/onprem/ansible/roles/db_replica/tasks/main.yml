@@ -25,16 +25,22 @@
     src: "{{ project_root }}/init.sql"
     dest: "/home/user1/aidas/init.sql"
 
-- name: "[Replica] ⚡ [조장님 핵심 피드백] pg_basebackup으로 초기 데이터 동기화 원격 추출"
+- name: "[Replica] .env 파일 읽기"
+  ansible.builtin.slurp:
+    src: /home/user1/.env
+  register: env_file
+
+- name: "[Replica] 비번 추출"
+  ansible.builtin.set_fact:
+    extracted_db_pass: "{{ (env_file.content | b64decode) | regex_search('POSTGRES_PASSWORD=(.+)', '\\1') | first }}"
+
+- name: "[Replica] ⚡ pg_basebackup으로 초기 데이터 동기화"
   ansible.builtin.shell: |
     sudo docker run --rm \
-      --env-file /home/user1/.env \
+      -e PGPASSWORD={{ extracted_db_pass }} \
       -v /home/user1/aidas/data:/var/lib/postgresql/data \
       postgres:15 \
       pg_basebackup -h {{ main_db_ip }} -D /var/lib/postgresql/data -U {{ replica_user }} -v -P -R -X stream
-  # 🌟 록키가 가지고 있는 변수 주머니에서 패스워드를 땡겨오기 위해 이 구문은 필수로 유지합니다.
-  environment:
-    PGPASSWORD: "{{ hostvars['rocky02']['extracted_db_pass'] }}"
 
 - name: "[Replica] ★ 원격 우분투 ReadOnly Replica DB 가동 (실시간 WAL 스트리밍) ★"
   ansible.builtin.shell: |

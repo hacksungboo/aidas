@@ -84,3 +84,9 @@ resource "github_actions_secret" "green_asg_name" {
   secret_name     = "GREEN_ASG_NAME"
   plaintext_value = aws_autoscaling_group.asg_green.name
 }
+
+resource "github_actions_secret" "tailscale_authkey" {
+  repository      = "aidas"
+  secret_name     = "TAILSCALE_AUTHKEY"
+  plaintext_value = var.tailscale_auth_key
+}

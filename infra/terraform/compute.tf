@@ -39,21 +39,30 @@ resource "aws_launch_template" "lt" {
   vpc_security_group_ids = [aws_security_group.asg_sg.id] # ASG 보안 그룹 연결
   key_name               = aws_key_pair.kp.key_name       # SSH 키 페어 연결
   iam_instance_profile {
-    name = aws_iam_instance_profile.asg_profile.name
+  name = aws_iam_instance_profile.asg_profile.name
+  }
+  block_device_mappings {
+  device_name = "/dev/xvda"
+  ebs {
+      volume_size = 20
+      volume_type = "gp3"
+    }
   }
 user_data = base64encode(<<-EOF
   #!/bin/bash
-  # 인터넷 연결 대기
   until ping -c 1 8.8.8.8 &> /dev/null; do
     sleep 5
   done
   dnf update -y
-  dnf install -y nginx stress
+  dnf install -y nginx stress docker
   systemctl enable --now nginx
+  systemctl enable --now docker
+  usermod -aG docker ec2-user
   mkdir -p /usr/share/nginx/html
   echo "<h1>Hello from ASG Instance <i>$(hostname)</i></h1>" > /usr/share/nginx/html/index.html
   echo "ok" > /usr/share/nginx/html/health
-EOF
+  EOF
+  
 )
 
   tag_specifications {

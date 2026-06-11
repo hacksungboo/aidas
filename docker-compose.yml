@@ -1,40 +1,19 @@
 services:
-
-  postgres-db:
-    image: postgres:15
-    container_name: aidas-postgres
-    restart: always
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_USER: aidas_user
-      POSTGRES_PASSWORD: aidas_password
-      POSTGRES_DB: aidas_db
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aidas_user -d aidas_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   aidas-web:
-    build:
-      context: .
-      dockerfile: services/web/Dockerfile
-    container_name: aidas-web
-    restart: unless-stopped
+    image: ${IMAGE_NAME}
     ports:
       - "8000:8000"
     environment:
-      DB_URL: postgresql://aidas_user:aidas_password@postgres-db:5432/aidas_db
+      DB_URL: postgresql://aidas_user:aidas_password@172.16.8.202:5432/aidas_db
     volumes:
       - aidas_logs:/var/log/aidas
-    depends_on:
-      postgres-db:
-        condition: service_healthy
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    volumes:
+      - aidas_logs:/var/log/aidas:ro
+      - ./promtail-config.yaml:/etc/promtail/config.yaml
+    command: -config.file=/etc/promtail/config.yaml
 
 volumes:
-  postgres_data:
   aidas_logs:

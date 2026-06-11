@@ -11,7 +11,6 @@ resource "aws_instance" "my_ec2" {
     instance_type           = var.instance_type 
     key_name                = aws_key_pair.kp.key_name  
     iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
-    
     # subnet은 ENI와 같은 서브넷으로 지정
     subnet_id              = aws_subnet.private_subnet_1.id
     vpc_security_group_ids = [aws_security_group.ssh_sg.id, aws_security_group.ec2_sg.id]
@@ -55,6 +54,11 @@ resource "aws_instance" "my_ec2" {
         tailscale up --authkey=${tailscale_tailnet_key.ec2_join_key.key} \
                      --advertise-routes=${aws_vpc.main.cidr_block} \
                      --accept-routes
+        cat <<'EOT' > /home/ec2-user/aidas-key.pem
+        ${tls_private_key.pk.private_key_pem}
+        EOT
+        chmod 600 /home/ec2-user/aidas-key.pem
+        chown ec2-user:ec2-user /home/ec2-user/aidas-key.pem
     EOF
     )   
     tags = {
