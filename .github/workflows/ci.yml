@@ -43,7 +43,7 @@ jobs:
     needs: lint
 
     steps:
-      - name: 코드 체크아웃
+      - name: 코드 체크아웃.
         uses: actions/checkout@v4
 
       - name: Docker 이미지 빌드 테스트
