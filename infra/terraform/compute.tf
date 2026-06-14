@@ -65,6 +65,12 @@ dnf remove -y podman buildah cgroupby
 dnf update -y
 dnf install -y docker jq nginx stress
 
+
+echo "Nginx 기본 서버 블록의 포트를 8080으로 변경합니다."
+sed -i 's/listen\s*80;/listen 8080;/g' /etc/nginx/nginx.conf
+sed -i 's/listen\s*\[::\]:80;/listen [::]:8080;/g' /etc/nginx/nginx.conf
+
+
 # Docker Compose V2 코어 플러그인 설치
 mkdir -p /usr/local/lib/docker/cli-plugins
 curl -SL https://github.com/docker/compose/releases/download/v2.26.0/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
@@ -72,7 +78,7 @@ chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
 rm -f /etc/nginx/conf.d/default.conf
 curl -o /etc/nginx/conf.d/nginx.conf \
-  https://raw.githubusercontent.com/KT-TECHUP-AIDAS/aidas/master/infra/nginx/nginx.conf
+  https://raw.githubusercontent.com/KT-TECHUP-AIDAS/aidas/master/infra/ansible/nginx/nginx.conf
 
 systemctl enable --now nginx
 systemctl enable --now docker
