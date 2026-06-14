@@ -112,7 +112,9 @@ jobs:
         run: |
           echo "인스턴스가 부팅될 때까지 대기합니다..."
           aws ec2 wait instance-running \
-            --filters "Name=tag:aws:autoscaling:groupName,Values=${{ needs.detect.outputs.idle_asg }}"
+            --filters \
+              "Name=tag:aws:autoscaling:groupName,Values=${{ needs.detect.outputs.idle_asg }}" \
+              "Name=instance-state-name,Values=pending,running"
 
       - name: user_data 실행 완료 대기 (60초)
         run: sleep 60
