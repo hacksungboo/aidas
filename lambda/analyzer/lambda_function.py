@@ -1,96 +1,113 @@
 import json
 import os
 import boto3
-import re
-import uuid
-import urllib.request  # 🔥 슬랙 전송을 위한 파이썬 기본 내장 모듈
-from datetime import datetime, timezone, timedelta
+import urllib.request
+from urllib.error import HTTPError
+from datetime import datetime, timezone
 
-# 초기화
-dynamodb = boto3.resource('dynamodb')
-table_name = os.environ.get('DYNAMODB_TABLE', 'aidas-incidents')
-slack_webhook_url = os.environ.get('SLACK_WEBHOOK_URL') # 🔥 테라폼에서 넘겨준 슬랙 URL
-table = dynamodb.Table(table_name)
+# ─── 환경변수 (죽지 않도록 안전하게 get 사용) ──────────────────────────
+SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
+DYNAMODB_TABLE    = os.environ.get("DYNAMODB_TABLE", "aidas-incidents")
+AWS_REGION        = os.environ.get("AWS_REGION", "ap-northeast-2")
 
-def lambda_handler(event, context):
+dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
+table    = dynamodb.Table(DYNAMODB_TABLE)
+
+def get_timestamp() -> str:
+    now = datetime.now(timezone.utc)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+def send_slack(original_log: str, analysis: str, elapsed: float):
+    if not SLACK_WEBHOOK_URL:
+        print("[AIDAS] ❌ SLACK_WEBHOOK_URL 환경변수가 없어 슬랙 알림을 생략합니다.")
+        return
+
+    # 🌟 슬랙의 3000자 제한을 넘지 않도록 2500자에서 안전하게 자르기 + 빈 문자열 방어
+    safe_log = original_log[:2500] + "\n...(생략됨)" if len(original_log) > 2500 else original_log
+    safe_log = safe_log if safe_log.strip() else "로그 내용 없음"
+    
+    safe_analysis = analysis[:2500] + "\n...(생략됨)" if len(analysis) > 2500 else analysis
+    safe_analysis = safe_analysis if safe_analysis.strip() else "AI 분석 결과가 비어있습니다."
+
     try:
-        # 1. 데이터 받기
-        service_name = event.get('service_name', 'UnknownService')
-        raw_timestamp = event.get('timestamp', '0')
-        original_log = event.get('original_log', '')
-        ai_text = event.get('ai_analysis_result', '')
-        elapsed = round(event.get('elapsed', 0.0), 2)
+        message = {
+            "blocks": [
+                {
+                    "type": "header",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🔍 AIDAS AI 분석 완료"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*원본 로그*\n```\n{safe_log}\n```"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*AI 분석 결과*\n{safe_analysis}"
+                    }
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"⏱ 분석 소요 시간: {elapsed:.2f}초"
+                        }
+                    ]
+                }
+            ]
+        }
         
-        # 2. 타임스탬프 변환 (KST)
-        ts_sec = int(raw_timestamp) / 1_000_000_000
-        kst_tz = timezone(timedelta(hours=9))
-        dt_kst = datetime.fromtimestamp(ts_sec, kst_tz)
-        readable_time = dt_kst.strftime('%Y-%m-%d %H:%M:%S KST')
+        req = urllib.request.Request(
+            SLACK_WEBHOOK_URL,
+            data    = json.dumps(message).encode("utf-8"),
+            headers = {"Content-Type": "application/json"},
+            method  = "POST"
+        )
+        with urllib.request.urlopen(req) as res:
+            print(f"[AIDAS] Slack 전송 완료: {res.status}")
 
-        # 3. 데이터 파싱
-        title = f"[{service_name}] 이상 징후 감지"
-        cause = "분석 내용 없음"
-        action = "조치 가이드 없음"
+    except HTTPError as e:
+        # 🌟 슬랙이 왜 거절했는지 정확한 이유를 CloudWatch에 출력
+        print(f"[AIDAS] ❌ Slack API 거절 (HTTP {e.code}): {e.read().decode('utf-8')}")
+    except Exception as e:
+        print(f"[AIDAS] ❌ Slack 전송 실패: {e}")
 
-        title_match = re.search(r'\[장애 유형\]\s*:?\s*(.*)', ai_text)
-        if title_match:
-            title = title_match.group(1).strip()
-
-        cause_match = re.search(r'\[발생 원인\]\s*:?\s*(.*?)(?=\[권장 조치 가이드\]|$)', ai_text, re.DOTALL)
-        if cause_match:
-            cause = cause_match.group(1).strip()
-
-        action_match = re.search(r'\[권장 조치 가이드\]\s*:?\s*(.*)', ai_text, re.DOTALL)
-        if action_match:
-            action = action_match.group(1).strip()
-
-        # 4. DynamoDB 저장 (DB에 이쁘게 넣기)
-        item = {
-            'incident_id': str(uuid.uuid4()),
-            'timestamp': str(raw_timestamp),
-            'status': 'OPEN',
-            'severity': 'HIGH',
-            'service_name': service_name,
-            'Date_KST': readable_time,
-            'IncidentTitle': title,
-            'RootCause': cause,
-            'ActionGuide': action,
-            'OriginalLog': original_log,
-            'AnalysisTimeSec': str(elapsed)
-        }
-        table.put_item(Item=item)
-        print("✅ DynamoDB 저장 성공")
-
-        # 5. 🔥 2차 슬랙 알림 전송 (이쁘게 파싱된 데이터로 쏘기)
-        if slack_webhook_url:
-            slack_message = {
-                "text": (
-                    f"🔍 *[AIDAS AI 분석 완료]*\n"
-                    f"*서비스:* `{service_name}`\n"
-                    f"*원본 로그:*\n```{original_log}```\n"
-                    f"*AI 분석 결과:*\n"
-                    f"🚨 *장애 유형:* {title}\n"
-                    f"🔎 *발생 원인:* {cause}\n"
-                    f"🛠️ *권장 조치:* {action}\n"
-                    f"⏱ *분석 소요 시간:* {elapsed}초"
-                )
+def save_dynamodb(original_log: str, analysis: str, timestamp: str, service_name: str):
+    try:
+        table.put_item(
+            Item={
+                "incident_id":       f"incident-{timestamp}",
+                "timestamp":         timestamp,
+                "status":            "OPEN",    # 🌟 테라폼 스키마에 맞게 이름 수정
+                "severity":          "HIGH",    # 🌟 테라폼 스키마에 맞게 이름 수정
+                "service_name":      service_name,
+                "original_log":      original_log,
+                "analysis":          analysis
             }
-            req = urllib.request.Request(
-                slack_webhook_url, 
-                data=json.dumps(slack_message).encode('utf-8'), 
-                headers={'Content-Type': 'application/json'}
-            )
-            urllib.request.urlopen(req)
-            print("✅ Slack 2차 알림 전송 성공")
-
-        return {
-            'statusCode': 200,
-            'body': json.dumps('Success: Saved to DB and sent to Slack!')
-        }
+        )
+        print("[AIDAS] DynamoDB 저장 완료")
 
     except Exception as e:
-        print(f"❌ 오류 발생: {e}")
-        return {
-            'statusCode': 500,
-            'body': json.dumps(f"Error: {str(e)}")
-        }
+        print(f"[AIDAS] ❌ DynamoDB 저장 실패: {e}")
+
+def lambda_handler(event, context):
+    print(f"📥 수신된 이벤트: {json.dumps(event)}")
+    
+    original_log = event.get("original_log", "")
+    analysis     = event.get("ai_analysis_result", "")
+    elapsed      = event.get("elapsed", 0.0)
+    service_name = event.get("service_name", "unknown")
+    timestamp    = event.get("timestamp") or get_timestamp()
+
+    send_slack(original_log, analysis, elapsed)
+    save_dynamodb(original_log, analysis, timestamp, service_name)
+
+    return {"statusCode": 200, "body": "OK"}
