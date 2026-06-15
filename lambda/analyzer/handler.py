@@ -6,7 +6,7 @@ import boto3
 import re
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
@@ -26,7 +26,8 @@ lambda_client = boto3.client('lambda', region_name=AWS_REGION)
 PROMPT_PATH = os.getenv("PROMPT_PATH", "/home/user1/aidas/prompts/system_prompt.md")
 SCENARIO_PATH = "/home/user1/aidas/prompts/scenarios"
 
-last_processed_ts = 0
+# 🌟 [수정] 서비스별로 타임스탬프를 격리하기 위해 딕셔너리로 변경
+last_processed_ts = {}
 
 
 def get_system_prompt():
@@ -57,7 +58,6 @@ def trigger_lambda_sync(log_data: dict, clean_ai_analysis: str, elapsed: float):
         logger.error(f"❌ AWS Lambda 호출 실패: {e}")
 
 
-# ── 1차 알림: 원본 로그 즉시 발송 ─────────────────────────────────
 async def send_slack_immediate_alert(log_data: dict):
     payload = {
         "text": (
@@ -72,7 +72,6 @@ async def send_slack_immediate_alert(log_data: dict):
     logger.info("✅ 1차 Slack 알림 발송 완료 (원본 로그)")
 
 
-# ── 2차 알림 fallback: AI 분석 실패 시 ────────────────────────────
 async def send_slack_fallback_alert(log_data: dict, error_reason: str):
     payload = {
         "text": (
@@ -128,10 +127,11 @@ async def analyze_with_ai(log_message: str):
                     "top_p": 0.9
                 }
             }, timeout=120.0) as response:
-                async for chunk in response.aiter_text():
-                    if chunk:
+                # 🌟 [수정] aiter_text() 대신 줄 단위 파싱이 보장되는 aiter_lines() 사용
+                async for line in response.aiter_lines():
+                    if line:
                         try:
-                            data = json.loads(chunk)
+                            data = json.loads(line)
                             full_response += data.get("response", "")
                         except json.JSONDecodeError:
                             pass
@@ -145,15 +145,15 @@ async def analyze_with_ai(log_message: str):
 async def poll_loki_and_analyze():
     global last_processed_ts
 
-    end_time = datetime.utcnow()
-    start_time = end_time - timedelta(seconds=15)
+    end_ns = time.time_ns()
+    start_ns = end_ns - (15 * 1_000_000_000)
 
     query = '{job=~".+"} |~ "ERROR|FATAL|WARN"'
 
     params = {
         'query': query,
-        'start': str(int(start_time.timestamp() * 1e9)),
-        'end': str(int(end_time.timestamp() * 1e9)),
+        'start': str(start_ns),
+        'end': str(end_ns),
         'limit': 100
     }
 
@@ -170,11 +170,14 @@ async def poll_loki_and_analyze():
             values = sorted(res.get('values', []), key=lambda x: int(x[0]))
 
             new_logs = []
-            max_ts_in_batch = last_processed_ts
+            
+            # 🌟 [수정] 해당 서비스 고유의 직전 타임스탬프를 가져옴 (격리 분석)
+            service_last_ts = last_processed_ts.get(service_name, 0)
+            max_ts_in_batch = service_last_ts
 
             for timestamp_str, message in values:
                 ts_int = int(timestamp_str)
-                if ts_int <= last_processed_ts:
+                if ts_int <= service_last_ts:
                     continue
                 new_logs.append(message)
                 max_ts_in_batch = max(max_ts_in_batch, ts_int)
@@ -187,12 +190,10 @@ async def poll_loki_and_analyze():
                     "message": combined_message
                 }
 
-                logger.info(f"신규 에러 {len(new_logs)}건 묶음 감지! 1차 알림 발송 후 AI 분석 시작...")
+                logger.info(f" 신규 에러 {len(new_logs)}건 묶음 감지! ([{service_name}]) 1차 알림 발송 후 AI 분석 시작...")
 
-                # 1차 알림: 원본 로그 즉시 Slack 발송
                 await send_slack_immediate_alert(log_data)
 
-                # 2차 알림: AI 분석 후 Lambda → Slack 발송
                 try:
                     start = time.time()
                     clean_analysis = await analyze_with_ai(combined_message)
@@ -201,7 +202,8 @@ async def poll_loki_and_analyze():
                 except Exception as ai_e:
                     await send_slack_fallback_alert(log_data, str(ai_e))
 
-                last_processed_ts = max_ts_in_batch
+                # 🌟 [수정] 전역 변수가 아닌 해당 서비스의 타임스탬프 스탬프만 단독 업데이트
+                last_processed_ts[service_name] = max_ts_in_batch
 
     except Exception as e:
         logger.error(f"Loki 폴링 실패: {e}")
@@ -219,4 +221,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logger.info("핸들러 안전하게 종료됨")   
+        logger.info("핸들러 안전하게 종료됨")

@@ -220,3 +220,4 @@ infra/terraform/ansible.cfg
 infra/terraform/inventory.yml
 infra/terraform/*.pem
 infra/terraform/terraform.tfvars
+*.zip
