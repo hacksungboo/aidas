@@ -63,9 +63,9 @@
   copy:
     src: /home/user1/aidas/.env
     dest: /etc/aidas.env
+    owner: user1
+    group: user1
     mode: "0600"
-    owner: root
-    group: root
 
 - name: handler systemd 서비스 파일 생성
   copy:
