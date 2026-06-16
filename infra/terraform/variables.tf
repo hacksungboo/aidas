@@ -49,7 +49,7 @@ variable "tailscale_api_key" {
 }
 
 variable "domain_name" {
-  default = "everton.cloud"
+  default = "ccrrec.cloud"
 }
 
 variable "slack_webhook_url" {
@@ -68,6 +68,12 @@ variable "github_owner" {
   description = "GitHub 조직명"
   type        = string
   default     = "KT-TECHUP-AIDAS"
+}
+
+variable "github_repo" {
+  description = "GitHub 레포지토리 이름"
+  type        = string
+  default     = "aidas"
 }
 
 variable "aws_access_key" {
@@ -95,6 +101,12 @@ variable "dockerhub_token" {
 
 variable "db_url" {
   description = "FastAPI DB 연결 URL"
+  type        = string
+  sensitive   = true
+}
+
+variable "db_password" {
+  description = "FastAPI DB 비밀번호"
   type        = string
   sensitive   = true
 }

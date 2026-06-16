@@ -62,6 +62,16 @@ output "alb_arn" {
   value       = aws_lb.web_alb.arn
 }
 
+output "blue_tg_arn" {
+  description = "Blue Target Group ARN"
+  value       = aws_lb_target_group.blue_tg.arn
+}
+
+output "green_tg_arn" {
+  description = "Green Target Group ARN"
+  value       = aws_lb_target_group.green_tg.arn
+}
+
 
 # ─── CloudFront ───────────────────────────────────────────────────
 output "cloudfront_domain" {

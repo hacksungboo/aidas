@@ -7,8 +7,9 @@
     - name: 연결 확인
       ping:
 
-- name: FastAPI 컨테이너 배포
-  hosts: all
-  become: true
-  roles:
-    - ec2_fastapi
+# FastAPI는 blue ASG 인스턴스 user_data(compute.tf)에서 실행
+# - name: FastAPI 컨테이너 배포
+#   hosts: all
+#   become: true
+#   roles:
+#     - ec2_fastapi

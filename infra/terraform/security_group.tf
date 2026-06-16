@@ -14,7 +14,7 @@ resource "aws_security_group" "nat_sg" {
   from_port   = 22
   to_port     = 22
   protocol    = "tcp"
-  cidr_blocks = ["0.0.0.0/0"]  # Tailscale 대역변경 전체허용
+  cidr_blocks = ["100.64.0.0/10"]  # Tailscale VPN 대역만 허용
   }
   # Private Subnet에서 오는 모든 트래픽 허용
   ingress {
@@ -138,7 +138,7 @@ resource "aws_security_group" "asg_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/16"]          # Tailscale만
+    cidr_blocks = [var.vpc_cidr]  # Bastion(my_ec2) 경유 CD 배포용
   }
   ingress {
     from_port       = 80
@@ -146,12 +146,12 @@ resource "aws_security_group" "asg_sg" {
     protocol        = "tcp"
     security_groups = [aws_security_group.alb_sg.id]
   }
-      ingress {
+  ingress {
     description = "ICMP from onpremise"
     from_port   = -1
     to_port     = -1
     protocol    = "icmp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.vpc_cidr, var.onpremise_cidr]  # VPC 내부 + 온프레미스 대역만 허용
   }
   egress {
     from_port   = 0

@@ -219,5 +219,9 @@ __marimo__/
 infra/terraform/ansible.cfg
 infra/terraform/inventory.yml
 infra/terraform/*.pem
+<<<<<<< HEAD
+infra/terraform/terraform.tfvarsdeploy/onprem/ansible/terraform.tfstate
+=======
 infra/terraform/terraform.tfvars
 *.zip
+>>>>>>> 134249e17bf7c1477731992e1f75329aded0bcf9
