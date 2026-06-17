@@ -1,6 +1,7 @@
 # Terraform local files
 .terraform/
 .terraform.lock.hcl
+backend.hcl
 
 # Terraform state files
 *.tfstate

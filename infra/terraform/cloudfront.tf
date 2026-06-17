@@ -1,9 +1,21 @@
 # cloudfront.tf
-# ├── CloudFront Distribution
+# ├── S3 버킷 (정적 자산)
+# ├── S3 퍼블릭 접근 차단 (OAC 전용)
+# ├── S3 버전 관리
+# ├── S3 암호화
 # ├── Origin Access Control (S3 직접 접근 차단)
-# └── S3 버킷 (장애 대응 프로세스 자산화)
+# ├── S3 버킷 정책 (CloudFront OAC만 허용)
+# ├── CloudFront Distribution
+# │     ├── Origin 1: ALB (동적 요청)
+# │     ── Origin 2: S3 assets (정적 자산 + 이미지 통합)
+# │     ├── Cache Behavior 1: /static/* → S3 assets (7일 캐싱)
+# │     ├── Cache Behavior 2: /images/* → S3 images (30일 캐싱) ← 신규
+# │     ├── Cache Behavior 3: /api/*    → ALB (캐싱 없음)
+# │     └── Default:          그 외      → ALB (1분 캐싱)
+# ├── ACM 인증서 (us-east-1)
+# └── Route53 레코드 (www + root → CloudFront)
 
-# ─── 1. S3 버킷 (정적 자산 + 장애 대응 자산화) ───────────────────
+# ─── 1. S3 버킷 (정적 자산 ) ───────────────────
 resource "aws_s3_bucket" "assets" {
   bucket = "${var.project_name}-assets-${data.aws_caller_identity.current.account_id}"
   tags   = { Name = "${var.project_name}-assets" }
@@ -50,6 +62,7 @@ resource "aws_cloudfront_origin_access_control" "oac" {
 # S3 버킷 정책: CloudFront OAC만 접근 허용
 resource "aws_s3_bucket_policy" "assets" {
   bucket = aws_s3_bucket.assets.id
+  depends_on = [aws_s3_bucket_public_access_block.assets]
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -67,6 +80,20 @@ resource "aws_s3_bucket_policy" "assets" {
   })
 }
 
+resource "aws_s3_bucket_cors_configuration" "assets" {
+  bucket = aws_s3_bucket.assets.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["GET"]
+    allowed_origins = [
+      "https://www.${var.domain_name}",
+      "https://${var.domain_name}"
+    ]
+    max_age_seconds = 3600
+  }
+}
+
 # ─── 3. CloudFront Distribution ───────────────────────────────────
 resource "aws_cloudfront_distribution" "main" {
   enabled             = true
@@ -80,7 +107,6 @@ resource "aws_cloudfront_distribution" "main" {
   origin {
     domain_name = aws_lb.web_alb.dns_name
     origin_id   = "alb-origin"
-
     custom_origin_config {
       http_port              = 80
       https_port             = 443
@@ -89,14 +115,15 @@ resource "aws_cloudfront_distribution" "main" {
     }
   }
 
-  # ── Origin 2: S3 (정적 자산) ───────────────────────────────────
+  # ── Origin 2: S3 (정적 자산) 
   origin {
     domain_name              = aws_s3_bucket.assets.bucket_regional_domain_name
     origin_id                = "s3-origin"
     origin_access_control_id = aws_cloudfront_origin_access_control.oac.id
   }
 
-  # ── Cache Behavior 1: 정적 자산 (S3) ──────────────────────────
+
+  # ── Cache Behavior 1: 정적 자산 (S3) (7일 캐싱)──────────────────────────
   ordered_cache_behavior {
     path_pattern           = "/static/*"
     target_origin_id       = "s3-origin"
@@ -111,11 +138,31 @@ resource "aws_cloudfront_distribution" "main" {
     }
 
     min_ttl     = 0
-    default_ttl = 604800
+    default_ttl = 604800 # 7일
     max_ttl     = 31536000
   }
 
-  # ── Cache Behavior 2: API 요청 (캐싱 비활성화) ────────────────
+  # ── Cache Behavior 2: (S3 이미지 버킷: 30일 캐싱) ────순서중요,API 요청보다 위에
+  ordered_cache_behavior {
+    path_pattern           = "/images/*"
+    target_origin_id       = "s3-origin"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
+
+    forwarded_values {
+      query_string = false
+      cookies { forward = "none" }
+    }
+
+    # 이미지 30일 캐싱
+    min_ttl     = 0
+    default_ttl = 2592000   # 30일
+    max_ttl     = 31536000  # 1년
+  }
+
+  # ── Cache Behavior 3: API 요청 (캐싱 비활성화) ────────────────
   ordered_cache_behavior {
     path_pattern           = "/api/*"
     target_origin_id       = "alb-origin"
@@ -135,7 +182,7 @@ resource "aws_cloudfront_distribution" "main" {
     max_ttl     = 0
   }
 
-  # ── Default Cache Behavior: ALB (동적 요청) ────────────────────
+  # ── Default Cache Behavior: ALB (1분 캐싱) ────────────────────
   default_cache_behavior {
     target_origin_id       = "alb-origin"
     viewer_protocol_policy = "redirect-to-https"

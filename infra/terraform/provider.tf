@@ -24,7 +24,7 @@ terraform {
   }
    # terraform 상태관리. 수동생성.
    backend "s3" {
-     bucket       = "evertonian-aidas-f1604f"
+     bucket       = "" # 팀원마다 다른 버킷
      key          = "prod/terraform.tfstate"
      region       = "ap-northeast-2"
      use_lockfile = true

@@ -84,6 +84,11 @@ output "s3_bucket_name" {
   value = aws_s3_bucket.assets.bucket
 }
 
+output "assets_base_url" {
+  description = "CloudFront 정적 자산 + 이미지 기본 URL"
+  value       = "https://${aws_cloudfront_distribution.main.domain_name}"
+}
+
 # ─── DynamoDB ─────────────────────────────────────────────────────
 output "incident_table_name" {
   description = "장애 이력 DynamoDB 테이블 이름"
