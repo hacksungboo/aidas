@@ -83,38 +83,58 @@ def send_slack(original_log: str, analysis: str, elapsed: float):
     except Exception as e:
         print(f"[AIDAS] ❌ Slack 전송 실패: {e}")
 
-def save_dynamodb(original_log: str, analysis: str, timestamp: str, service_name: str):
-    # 나노초를 KST로 변환 (이제 Fallback을 타도 에러 없이 작동합니다)
+def save_dynamodb(original_log: str, analysis: str, timestamp: str, service_name: str, host: str = "unknown", scenario: str = "unknown"):
+    # 1. 시간 변환 및 에러 방어 (UnboundLocalError 해결)
     try:
         ts_sec = int(timestamp) / 1_000_000_000
         kst_tz = timezone(timedelta(hours=9))
         dt_kst = datetime.fromtimestamp(ts_sec, kst_tz)
-        readable_time = dt_kst.strftime('%Y-%m-%d %H:%M:%S KST')
+        readable_time = dt_kst.strftime('%Y-%m-%d %H:%M')
+        error_date = dt_kst.strftime('%Y-%m-%d')  # 🌟 try 안에서 미리 선언
     except Exception:
         readable_time = "Unknown Time"
+        error_date = "Unknown Date"               # 🌟 except로 빠져도 변수가 존재하도록 방어!
 
+    incident_id = f"incident-{timestamp}"
+
+    # 2. 장애 유형 한글 매핑
+    scenario_kr = {
+        "db_timeout": "DB 연결 타임아웃",
+        "oom": "메모리 부족(OOM)",
+        "az_failure": "AZ 장애",
+        "http_500": "HTTP 500 에러",
+        "unknown": "미분류"
+    }.get(scenario, "미분류")
+
+    # 3. 요약 필드 생성
+    summary = f"[{readable_time}] {host} - {scenario_kr}"
+
+    # 4. DynamoDB 저장
     try:
         table.put_item(
             Item={
-                "incident_id":       f"incident-{timestamp}",
-                "timestamp":         timestamp,
-                "error_time_kst":    readable_time,
-                "status":            "OPEN",    
-                "severity":          "HIGH",    
-                "service_name":      service_name,
-                "original_log":      original_log,
-                "analysis":          analysis
+                "incident_id":   incident_id,
+                "summary":       summary,             
+                "error_date":    error_date,          # 🌟 수정된 안전한 변수 사용
+                "error_time_kst": readable_time,
+                "host":          host,                
+                "scenario":      scenario,            
+                "scenario_kr":   scenario_kr,
+                "timestamp":     timestamp,
+                "status":        "OPEN",
+                "severity":      "HIGH",
+                "service_name":  service_name,
+                "original_log":  original_log,
+                "analysis":      analysis
             }
         )
         print("[AIDAS] DynamoDB 저장 완료")
-
     except Exception as e:
         print(f"[AIDAS] ❌ DynamoDB 저장 실패: {e}")
 
 def lambda_handler(event, context):
     print(f"📥 수신된 이벤트: {json.dumps(event)}")
     
-    # 🌟 [리뷰 반영 1] 방어막 강화: 필수 데이터(service_name)가 없거나 AI 분석 결과가 비어있으면 컷!
     if not event.get("service_name"):
         print("[AIDAS] 👻 필수 데이터가 없는 유령 이벤트 감지 -> 무시함")
         return {"statusCode": 200, "body": "Ignored empty event"}
@@ -127,11 +147,12 @@ def lambda_handler(event, context):
     analysis     = event.get("ai_analysis_result", "")
     elapsed      = event.get("elapsed", 0.0)
     service_name = event.get("service_name", "unknown")
+    host         = event.get("host", "unknown")        # 🌟 추가
+    scenario     = event.get("scenario", "unknown")    # 🌟 추가
     
-    # 변경된 Fallback 함수 적용
     timestamp    = event.get("timestamp") or get_nanosec_timestamp()
 
     send_slack(original_log, analysis, elapsed)
-    save_dynamodb(original_log, analysis, timestamp, service_name)
+    save_dynamodb(original_log, analysis, timestamp, service_name, host, scenario)  # 🌟 두 값 추가 전달
 
     return {"statusCode": 200, "body": "OK"}
