@@ -49,7 +49,7 @@ variable "tailscale_api_key" {
 }
 
 variable "domain_name" {
-  default = "everton.cloud"
+  default = "everton.cloud" # 테스트 시 팀원 본인 도메인
 }
 
 variable "slack_webhook_url" {
