@@ -31,6 +31,7 @@ resource "aws_lb_target_group" "blue_tg" {
   port     = 80
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
+  deregistration_delay = 60
 
   health_check {
     enabled             = true
@@ -51,6 +52,7 @@ resource "aws_lb_target_group" "green_tg" {
   port     = 80
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
+  deregistration_delay = 60
 
   health_check {
     enabled             = true

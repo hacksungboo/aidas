@@ -39,7 +39,10 @@
                         {% for product in products %}
                         <div class="col-md-4 mb-4">
                             <div class="card h-100 shadow-sm">
-                                <div class="product-img">📸 {{ product.product_name }} 이미지</div>
+                                <div class="product-img p-0 overflow-hidden">
+                                    <img src="" data-product="{{ product.product_name }}" 
+                                        class="product-thumb w-100 h-100" style="object-fit: cover;">
+                                        </div>
                                 <div class="card-body text-center">
                                     <h5 class="card-title fw-bold text-dark">{{ product.product_name }}</h5>
                                     <p class="card-text text-danger fw-bold fs-5 mb-3">{{ product.price }} 원</p>
@@ -98,7 +101,7 @@
             document.getElementById('detail-title-box').innerText = name;
             document.getElementById('detail-price-box').innerText = Number(price).toLocaleString() + " 원";
             document.getElementById('detail-stock-box').innerText = "현재 남은 재고: " + stock + "개";
-            document.getElementById('detail-img-box').innerText = "📸 " + name + " 정밀 레이아웃";
+            document.getElementById('detail-img-box').innerHTML = '<img src="' + getImageUrl(name) + '" style="width:100%;height:100%;object-fit:cover;">';
 
             document.getElementById('list-section-view').classList.add('d-none');
             document.getElementById('detail-section-view').classList.remove('d-none');
@@ -132,6 +135,22 @@
                 showListPage();
             }
         };
+
+                function getImageUrl(productName) {
+            const baseUrl = "https://everton.cloud/static/images/";
+            if (productName.includes("후드")) return baseUrl + "hoodie.jpg";
+            if (productName.includes("니트")) return baseUrl + "knit.jpg";
+            if (productName.includes("팬츠")) return baseUrl + "pants.jpg";
+            if (productName.includes("셔츠")) return baseUrl + "shirts.webp";
+            if (productName.includes("슬랙스")) return baseUrl + "slacks.webp";
+            return baseUrl + "hoodie.jpg";
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.product-thumb').forEach(img => {
+                img.src = getImageUrl(img.dataset.product);
+            });
+        });
     </script>
 </body>
 </html>
