@@ -27,7 +27,7 @@ EC2 FastAPI
 
 ### 2. Promtail (AWS EC2)
 - FastAPI 로그 파일 실시간 테일링
-- `ERROR`, `WARN`, `FATAL`, `CRITICAL` 키워드만 필터링
+- `ERROR`, `WARN`, `FATAL` 키워드만 필터링
 - Tailscale VPN을 통해 Loki로 전송
 
 ### 3. Loki (rocky01 온프레미스)

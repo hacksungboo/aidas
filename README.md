@@ -25,7 +25,7 @@
 AIDAS는 퍼블릭 클라우드와 온프레미스 환경이 가상 메쉬 VPN(Tailscale)으로 유기적으로 연동된 하이브리드 인프라 아키텍처를 가집니다.
 
 - AWS 퍼블릭 클라우드 영역 (Frontend & Web Layer) 
-  Route53 / CloudFront -> ALB -> EC2 Cluster (Docker Swarm)
+  Route53 / CloudFront -> ALB -> EC2
   * 가동 서비스: FastAPI 웹 애플리케이션 및 Promtail 에이전트 (ERROR/FATAL 로그 실시간 필터링)
 
 - 가상 보안 터널
@@ -100,10 +100,10 @@ aidas/
 - 로그: kernel: Out of memory: Kill process (python) score or sacrifice child
 - AI 가이드: Docker Swarm의 컨테이너 자원 리미트(IaC) 재설정 유도
 
-3) Disk Full (🟡 디스크 용량 부족)
-- 동작: 서버 내부 임시 경로에 1GB 단위 더미 파일을 연속 기입하여 디스크 잔여 용량 0% 유도
-- 로그: EnvironmentalError / OSError: [Errno 28] No space left on device
-- AI 가이드: 오래된 로그 데이터를 AWS S3 오브젝트 스토리지로 마이그레이션하는 크론탭 스크립트 실행 권고
+3) AWS AZ Failure (🟡 가용 영역 장애)
+- 동작: 특정 가용 영역(AZ)의 서브넷 네트워크 라우팅을 차단하거나 인스턴스를 강제 종료하여, 단일 데이터센터 수준의 블랙아웃 상황 시뮬레이션
+- 로그: 502 Bad Gateway 및 ALB Health Check Failed: target unresponsive in impaired Availability Zone
+- AI 가이드: Auto Scaling Group(ASG)의 Multi-AZ 페일오버(Failover) 정상 동작 여부 확인 및 트래픽이 정상 AZ로 안전하게 우회되고 있는지 점검 권고
 
 4) HTTP 500 Error (🔵 애플리케이션 코드 오류)
 - 동작: 상품 조회 API 호출 시 의도적으로 Zero Division 또는 Null 참조를 발생시켜 Stack Trace 에러 유도
