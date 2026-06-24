@@ -24,6 +24,7 @@
 ## 🏗️ 3. 시스템 아키텍처 (System Architecture)
 AIDAS는 퍼블릭 클라우드의 탄력성과 온프레미스의 보안 가치를 모두 충족하는 하이브리드 인프라 아키텍처(Hybrid Architecture)를 채택하고 있습니다. 두 환경은 메쉬 VPN(Tailscale)을 통해 암호화된 프라이빗 사설망으로 유기적으로 연동됩니다.
 
+```
 [사용자 트래픽] ➔ Route 53 ➔ CloudFront ➔ ALB ➔ EC2 (FastAPI / Promtail)
                                                     │
                                         (Tailscale 보안 터널)
@@ -33,6 +34,7 @@ AIDAS는 퍼블릭 클라우드의 탄력성과 온프레미스의 보안 가치
                                              (Slack Webhook)
                                                     ▼
                                             [인프라 운영팀]
+```
 
 1) AWS 퍼블릭 클라우드 영역 (Frontend & Web Layer)
 인프라 라우팅: Amazon Route 53 ➔ Amazon CloudFront ➔ Application Load Balancer (ALB) ➔ Amazon EC2
